@@ -14,6 +14,7 @@ import {
   formatOpenUsage,
   formatOpenMessage,
 } from "./open-position.js";
+import { createCommandGate, formatCooldownMessage } from "./command-gate.js";
 import { escapeHtml } from "./telegram.js";
 
 function now() {
@@ -34,7 +35,8 @@ async function handleHelpCommand(notifier) {
   await notifier?.send(formatHelpMessage());
 }
 
-async function handleRefreshCommand(client, notifier) {
+async function handleRefreshCommand(client, notifier, commandGate) {
+  commandGate?.mark("/refresh");
   await notifier?.send("⏳ Mengambil data posisi terbaru...");
   const open = await getOpenPositions(client, true);
   if (open.length === 0) {
@@ -154,7 +156,7 @@ async function handleCloseSpecific(client, notifier, tracker, inflight, open, ta
   });
 }
 
-async function handleCloseCommand(parsed, { client, notifier, tracker, inflight, liveClose }) {
+async function handleCloseCommand(parsed, { client, notifier, tracker, inflight, liveClose, commandGate }) {
   const rawTarget = parsed.args[0];
   if (!rawTarget) {
     await notifier?.send(
@@ -162,6 +164,8 @@ async function handleCloseCommand(parsed, { client, notifier, tracker, inflight,
     );
     return;
   }
+
+  commandGate?.mark("/close");
 
   if (!liveClose) {
     await notifier?.send(
@@ -193,14 +197,23 @@ async function handleCloseCommand(parsed, { client, notifier, tracker, inflight,
 
 export async function handleTelegramCommand(parsed, context) {
   const { cmd } = parsed;
+  const gate = context.commandGate;
 
   if (cmd === "/help" || cmd === "/start") {
     await handleHelpCommand(context.notifier);
     return;
   }
 
+  if (gate && (cmd === "/refresh" || cmd === "/close" || cmd === "/open")) {
+    const hit = gate.check(cmd);
+    if (!hit.ok) {
+      await context.notifier?.send(formatCooldownMessage(hit));
+      return;
+    }
+  }
+
   if (cmd === "/refresh") {
-    await handleRefreshCommand(context.client, context.notifier);
+    await handleRefreshCommand(context.client, context.notifier, gate);
     return;
   }
 
@@ -214,7 +227,7 @@ export async function handleTelegramCommand(parsed, context) {
   }
 }
 
-async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen }) {
+async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen, commandGate }) {
   const spec = parseOpenCommand(parsed.args);
   if (spec.error) {
     await notifier?.send(formatOpenUsage());
@@ -222,11 +235,13 @@ async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen 
   }
 
   const openKey = `open:${spec.chain}:${spec.token}`;
-  if (inflight?.has(openKey)) {
-    await notifier?.send("⚠️ Open posisi ini masih diproses. Tunggu selesai dulu.");
+  if (inflight?.has("open:busy") || inflight?.has(openKey)) {
+    await notifier?.send("⚠️ Open posisi masih diproses. Tunggu selesai dulu.");
     return;
   }
 
+  commandGate?.mark("/open");
+  inflight?.add("open:busy");
   inflight?.add(openKey);
   try {
     await notifier?.send(
@@ -284,6 +299,7 @@ async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen 
     );
   } finally {
     inflight?.delete(openKey);
+    inflight?.delete("open:busy");
   }
 }
 
@@ -392,6 +408,11 @@ export async function startWorker(cfg, client, options = {}) {
   }
 
   const inflight = new Set();
+  const commandGate = createCommandGate({
+    minIntervalMs: cfg.telegramCmdIntervalMs,
+    openCooldownMs: cfg.telegramOpenCooldownMs,
+    closeCooldownMs: cfg.telegramCloseCooldownMs,
+  });
   let tick = 0;
   let busy = false;
 
@@ -405,12 +426,15 @@ export async function startWorker(cfg, client, options = {}) {
           inflight,
           liveClose: cfg.liveClose,
           liveOpen: cfg.liveOpen,
+          commandGate,
         });
       } catch (err) {
         log(`telegram command error: ${err.message}`);
       }
     });
-    log("Telegram command listener started (/refresh, /close, /open, /help)");
+    log(
+      `Telegram command listener started (/refresh, /close, /open, /help) · open cooldown ${Math.round(cfg.telegramOpenCooldownMs / 1000)}s`,
+    );
   }
 
   const once = async () => {

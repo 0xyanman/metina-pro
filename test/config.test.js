@@ -15,6 +15,9 @@ const ENV_KEYS = [
   "DISCOVER_EVERY",
   "LIVE_CLOSE",
   "LIVE_OPEN",
+  "TELEGRAM_CMD_INTERVAL_MS",
+  "TELEGRAM_OPEN_COOLDOWN_MS",
+  "TELEGRAM_CLOSE_COOLDOWN_MS",
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_CHAT_ID",
   "TELEGRAM_MESSAGE_THREAD_ID",
@@ -90,6 +93,9 @@ describe("loadConfig", () => {
     assert.equal(cfg.liveClose, false);
     assert.equal(cfg.liveOpen, false);
     assert.equal(cfg.pollMs, 45_000);
+    assert.equal(cfg.telegramCmdIntervalMs, 2_000);
+    assert.equal(cfg.telegramOpenCooldownMs, 45_000);
+    assert.equal(cfg.telegramCloseCooldownMs, 10_000);
     assert.equal(cfg.discoverEvery, 8);
     assert.equal(cfg.telegram, null);
   });

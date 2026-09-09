@@ -77,6 +77,9 @@ export function loadConfig() {
     discoverEvery: Math.max(1, Math.round(envNum("DISCOVER_EVERY", 8))),
     liveClose: envOn("LIVE_CLOSE", false),
     liveOpen: envOn("LIVE_OPEN", false),
+    telegramCmdIntervalMs: Math.max(500, envNum("TELEGRAM_CMD_INTERVAL_MS", 2_000)),
+    telegramOpenCooldownMs: Math.max(5_000, envNum("TELEGRAM_OPEN_COOLDOWN_MS", 45_000)),
+    telegramCloseCooldownMs: Math.max(2_000, envNum("TELEGRAM_CLOSE_COOLDOWN_MS", 10_000)),
     telegram,
   };
 }

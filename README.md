@@ -143,6 +143,8 @@ Commands (from that chat only):
 
 `/close` is ignored while `LIVE_CLOSE=0`. `/close` with no target does nothing. Anyone in that chat can send commands.
 
+The worker throttles Telegram so a chat cannot flood Metina Pro: **2s** between any command, **45s** between `/open`, **10s** between `/close`. Extra `/open` while one mint is running is dropped. Pro also rate-limits each worker IP (`/api/web` 60/min, writes like deploy/close 100 per 5 min).
+
 ### Open an LP from Telegram
 
 Same path as the Pro desk: `lookup` then `deploy`. The worker does not mint locally.
@@ -343,6 +345,8 @@ Perintah (hanya dari chat itu):
 - `/close <id>` — tutup satu posisi (`/close 933596`, atau `/close 1` sesuai nomor di kartu ringkasan terakhir)
 
 `/close` diabaikan selama `LIVE_CLOSE=0`. `/close` tanpa target tidak menutup apa pun. Siapa pun di chat itu bisa kirim perintah.
+
+Worker membatasi command Telegram supaya chat tidak membanjiri Metina Pro: **2 detik** antar command, **45 detik** antar `/open`, **10 detik** antar `/close`. `/open` berikutnya saat mint masih jalan di-drop. Pro juga rate-limit per IP worker (`/api/web` 60/menit, write deploy/close 100 per 5 menit).
 
 ### Buka LP dari Telegram
 
