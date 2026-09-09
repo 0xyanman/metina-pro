@@ -152,17 +152,26 @@ Same path as the Pro desk: `lookup` then `deploy`. The worker does not mint loca
 3. Set `LIVE_OPEN=1` and restart. The same command actually opens the position.
 
 ```
-/open <0x token> <amount> [chain] [side] [sl] [tp]
+/open <0x token> <amount> [chain] [quote] [side] [sl] [tp]
 ```
 
 ```
 /open 0xabc… 0.5 robinhood
-/open 0xabc… 0.5 robinhood sl=-50 tp=20
-/open 0xabc… 0.5 robinhood side=single
-/open 0xabc… 0.5 robinhood side=double
-/open 0xabc… 0.5 robinhood side=token
-/open 0xabc… 100 bsc side=double min=-60 max=150
+/open 0xabc… 0.5 robinhood quote=usdg sl=-50 tp=20
+/open 0xabc… 0.5 robinhood quote=eth side=single
+/open 0xabc… 100 bsc quote=usdt side=double
+/open 0xabc… 0.5 base quote=usdc
 ```
+
+**Amount is in the quote token**, not USD. `0.5 robinhood` = 0.5 USDG. `quote=eth` = 0.5 ETH.
+
+| Chain | Default quote | Other quote |
+|---|---|---|
+| `robinhood` | `USDG` | `quote=eth` |
+| `base` | `USDC` | `quote=eth` |
+| `bsc` | `USDT` | `quote=bnb` |
+
+Same quotes as the Pro desk. You can also write the word alone: `/open 0xabc… 100 bsc usdt`.
 
 `side=single`, `side=double`, and `side=token` match the Open LP sides on the Pro desk. You can also write the word alone: `/open 0xabc… 0.5 robinhood double`.
 
@@ -177,10 +186,11 @@ Picking a side applies that range unless you override with `min=` / `max=`.
 | Piece | Default |
 |---|---|
 | Chain | `auto` (or `robinhood` / `base` / `bsc`) |
+| Quote | per chain above (`USDG` / `USDC` / `USDT`) |
 | Side | `single` |
 | SL / TP | empty (worker will not auto-close until you set them) |
 
-Optional: `min=` / `max=`, `pool=0x…`, `quote=usdg`. Token must be an EVM `0x` address. Solana / DLMM is not supported here (no Solana key in this worker).
+Optional: `min=` / `max=`, `pool=0x…`. Token must be an EVM `0x` address. Solana / DLMM is not supported here (no Solana key in this worker).
 
 If you pass `sl=` / `tp=` on `/open`, the closer uses those levels on the next watch cycle. Otherwise fill SL/TP on the Pro Open card like before.
 
@@ -343,17 +353,26 @@ Alurnya sama seperti desk Pro: `lookup` lalu `deploy`. Worker tidak mint sendiri
 3. Set `LIVE_OPEN=1` lalu restart. Command yang sama baru benar-benar buka posisi.
 
 ```
-/open <0x token> <amount> [chain] [side] [sl] [tp]
+/open <0x token> <amount> [chain] [quote] [side] [sl] [tp]
 ```
 
 ```
 /open 0xabc… 0.5 robinhood
-/open 0xabc… 0.5 robinhood sl=-50 tp=20
-/open 0xabc… 0.5 robinhood side=single
-/open 0xabc… 0.5 robinhood side=double
-/open 0xabc… 0.5 robinhood side=token
-/open 0xabc… 100 bsc side=double min=-60 max=150
+/open 0xabc… 0.5 robinhood quote=usdg sl=-50 tp=20
+/open 0xabc… 0.5 robinhood quote=eth side=single
+/open 0xabc… 100 bsc quote=usdt side=double
+/open 0xabc… 0.5 base quote=usdc
 ```
+
+**Amount dalam token quote**, bukan USD. `0.5 robinhood` = 0.5 USDG. `quote=eth` = 0.5 ETH.
+
+| Chain | Quote default | Quote lain |
+|---|---|---|
+| `robinhood` | `USDG` | `quote=eth` |
+| `base` | `USDC` | `quote=eth` |
+| `bsc` | `USDT` | `quote=bnb` |
+
+Sama seperti desk Pro. Bisa juga ditulis langsung: `/open 0xabc… 100 bsc usdt`.
 
 `side=single`, `side=double`, dan `side=token` sama seperti pilihan side di Open LP desk Pro. Bisa juga ditulis langsung: `/open 0xabc… 0.5 robinhood double`.
 
@@ -368,10 +387,11 @@ Pilih side = range itu yang dipakai, kecuali di-override `min=` / `max=`.
 | Bagian | Default |
 |---|---|
 | Chain | `auto` (atau `robinhood` / `base` / `bsc`) |
+| Quote | sesuai chain di atas (`USDG` / `USDC` / `USDT`) |
 | Side | `single` |
 | SL / TP | kosong (worker tidak auto-close sampai diisi) |
 
-Opsional: `min=` / `max=`, `pool=0x…`, `quote=usdg`. Token harus alamat EVM `0x`. Solana / DLMM tidak didukung (worker ini tidak punya key Solana).
+Opsional: `min=` / `max=`, `pool=0x…`. Token harus alamat EVM `0x`. Solana / DLMM tidak didukung (worker ini tidak punya key Solana).
 
 Kalau `/open` dikasih `sl=` / `tp=`, closer pakai level itu di cycle berikutnya. Kalau tidak, isi SL/TP di kartu Open Pro seperti biasa.
 

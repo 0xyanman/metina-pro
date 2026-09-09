@@ -21,6 +21,26 @@ const SIDE_RANGES = {
   token: { min: 1, max: 150 },
 };
 
+/** Same quote list as the Pro desk Open LP preset. */
+const QUOTES = {
+  usdg: "usdg",
+  usdt: "usdt",
+  usdc: "usdc",
+  eth: "eth",
+  weth: "eth",
+  bnb: "bnb",
+  wbnb: "bnb",
+  both: "both",
+};
+
+const DEFAULT_QUOTE_BY_CHAIN = {
+  robinhood: "usdg",
+  base: "usdc",
+  bsc: "usdt",
+  ethereum: "eth",
+  auto: "usdg",
+};
+
 const STABLE_QUOTE = /usdg|usdt|usdc/i;
 
 function num(v) {
@@ -111,13 +131,20 @@ export function parseOpenCommand(args) {
       applyOption(out, kv.key, kv.value);
       continue;
     }
-    const mapped = CHAINS[arg.toLowerCase()];
+    const lower = arg.toLowerCase();
+    const mapped = CHAINS[lower];
+    const quoteWord = QUOTES[lower];
+    // Stables are never chain names. eth/bnb stay chain unless chain is already set.
+    if (quoteWord && (!mapped || (out.chain && out.chain !== "auto"))) {
+      out.quote = quoteWord;
+      continue;
+    }
     if (mapped) {
       out.chain = mapped;
       continue;
     }
-    if (SIDES.has(arg.toLowerCase())) {
-      out.side = arg.toLowerCase();
+    if (SIDES.has(lower)) {
+      out.side = lower;
       continue;
     }
     const n = num(arg);
@@ -130,6 +157,7 @@ export function parseOpenCommand(args) {
 
   if (positionalNums[0] != null && out.stop_loss == null) out.stop_loss = positionalNums[0];
   if (positionalNums[1] != null && out.take_profit == null) out.take_profit = positionalNums[1];
+  if (!out.quote) out.quote = DEFAULT_QUOTE_BY_CHAIN[out.chain] || "usdg";
 
   const band = SIDE_RANGES[out.side] || SIDE_RANGES.single;
   if (out.range_min_pct == null) out.range_min_pct = band.min;
@@ -218,10 +246,10 @@ export function lookupBody(parsed) {
 export function formatOpenUsage() {
   return [
     "⚠️ /open butuh token EVM dan amount.",
-    "Pakai <code>/open &lt;0x token&gt; &lt;amount&gt; [chain] [sl=] [tp=]</code>",
-    "Contoh: <code>/open 0xabc… 0.5 robinhood sl=-50 tp=20</code>",
-    "Chain: robinhood, base, bsc. Side: single / double / token (default single −80% … −1%).",
-    "Opsional: <code>side=double</code> <code>side=token</code> <code>min=-60</code> <code>max=150</code> <code>pool=0x…</code>",
+    "Pakai <code>/open &lt;0x token&gt; &lt;amount&gt; [chain] [quote] [side] [sl=] [tp=]</code>",
+    "Contoh: <code>/open 0xabc… 0.5 robinhood quote=usdg sl=-50 tp=20</code>",
+    "Quote default: robinhood=USDG, base=USDC, bsc=USDT. Amount dalam token quote itu.",
+    "Override: <code>quote=eth</code> / <code>quote=bnb</code> / <code>usdt</code>. Side: single / double / token.",
   ].join("\n");
 }
 
@@ -239,6 +267,7 @@ export function formatOpenMessage({ lookup, pool, payload, result, error, dry } 
   const title = chainLabel ? `${escapeHtml(pair)} · ${escapeHtml(chainLabel)}` : escapeHtml(pair);
   const timestamp = formatTimestampWIB();
   const amt = amountLabel(payload, pool);
+  const quote = pool?.quote_symbol || lookup?.preset?.quote_symbol || "";
   const range = payload?.range_min_pct != null && payload?.range_max_pct != null
     ? `${payload.range_min_pct}% … ${payload.range_max_pct}%`
     : "—";
@@ -246,6 +275,7 @@ export function formatOpenMessage({ lookup, pool, payload, result, error, dry } 
   const tp = payload?.take_profit != null ? `${payload.take_profit}%` : "—";
   const poolAddr = pool?.pool ? `<code>${escapeHtml(pool.pool)}</code>` : "—";
   const grade = pool?.grade ? ` · ${escapeHtml(pool.grade)}` : "";
+  const quoteLine = quote ? `Quote: ${escapeHtml(quote)}` : null;
 
   if (dry) {
     return [
@@ -253,6 +283,7 @@ export function formatOpenMessage({ lookup, pool, payload, result, error, dry } 
       `<b>${title}</b>`,
       "",
       `Pool: ${poolAddr}${grade}`,
+      quoteLine,
       amt ? `Amount: ${escapeHtml(amt)}` : null,
       `Range: ${escapeHtml(range)}`,
       `SL / TP: ${escapeHtml(sl)} / ${escapeHtml(tp)}`,
@@ -279,6 +310,7 @@ export function formatOpenMessage({ lookup, pool, payload, result, error, dry } 
     `<b>${title}</b>`,
     "",
     `Pool: ${poolAddr}${grade}`,
+    quoteLine,
     amt ? `Amount: ${escapeHtml(amt)}` : null,
     `Range: ${escapeHtml(range)}`,
     `SL / TP: ${escapeHtml(sl)} / ${escapeHtml(tp)}`,
