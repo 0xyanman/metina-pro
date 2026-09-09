@@ -1,4 +1,4 @@
-# Metina TP/SL (24h)
+# Metina PRO TP/SL (24h)
 
 24/7 take-profit / stop-loss worker for [Metina Pro](https://pro.metina.id), plus **Telegram `/open`** to mint an LP. You run it on **your** machine or VPS. Metina Pro **does not store your private key**.
 
