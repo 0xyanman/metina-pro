@@ -113,6 +113,54 @@ describe("Metina client", () => {
     });
   });
 
+  test("lookup posts to /api/web/lookup without a vault key", async () => {
+    const client = createClient(creds);
+    await withFetch((_url, _init, n) => {
+      if (n === 1) {
+        return jsonRes({
+          body: { ok: true },
+          cookies: ["metina_member_session=abc.member1"],
+        });
+      }
+      return jsonRes({ body: { ok: true, type: "uniswap", pools: [] } });
+    }, async (calls) => {
+      await client.login();
+      const out = await client.lookup({ token: creds.address, chain: "robinhood", amount: 0.5 });
+      assert.equal(out.type, "uniswap");
+      assert.match(calls[1].url, /\/api\/web\/lookup$/);
+      const sent = JSON.parse(calls[1].init.body);
+      assert.equal(sent._vault, undefined);
+      assert.equal(sent.token, creds.address);
+    });
+  });
+
+  test("deploy sends _vault key only in the body", async () => {
+    const client = createClient(creds);
+    await withFetch((_url, _init, n) => {
+      if (n === 1) {
+        return jsonRes({
+          body: { ok: true },
+          cookies: ["metina_member_session=abc.member1"],
+        });
+      }
+      return jsonRes({ body: { ok: true, success: true, tx: "0xopen", position: "42" } });
+    }, async (calls) => {
+      await client.login();
+      const out = await client.deploy({
+        venue: "uniswap",
+        pool: "0x2222222222222222222222222222222222222222",
+        amount: 0.5,
+        chain: "robinhood",
+      });
+      assert.equal(out.tx, "0xopen");
+      assert.match(calls[1].url, /\/api\/web\/deploy$/);
+      const sent = JSON.parse(calls[1].init.body);
+      assert.equal(sent._vault.evmKey, creds.evmKey);
+      assert.equal(sent.venue, "uniswap");
+      assert.equal(JSON.stringify(calls[1].init.headers).includes(creds.evmKey), false);
+    });
+  });
+
   test("non-401 errors do not retry login", async () => {
     const client = createClient(creds);
     await withFetch(() => jsonRes({ status: 500, body: { ok: false, error: "boom" } }), async (calls) => {

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "24/7 TP/SL closer for Metina Pro. Runs on the member's machine. Private key stays in their .env.",
+  "description": "24/7 TP/SL closer for Metina Pro, plus Telegram /open. Runs on the member's machine. Private key stays in their .env.",
   "scripts": {
     "start": "node src/index.js",
     "dry": "LIVE_CLOSE=0 node src/index.js",

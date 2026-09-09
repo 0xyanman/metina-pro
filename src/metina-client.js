@@ -94,5 +94,30 @@ export function createClient({ metinaUrl, email, password, evmKey, address, rpcs
     });
   }
 
-  return { login, positions, close };
+  async function lookup(body) {
+    return withAuth(async () => {
+      const res = await fetch(`${metinaUrl}/api/web/lookup`, {
+        method: "POST",
+        headers: headers({ sign: true }),
+        body: JSON.stringify(body),
+      });
+      return readJson(res);
+    });
+  }
+
+  async function deploy(body) {
+    return withAuth(async () => {
+      const res = await fetch(`${metinaUrl}/api/web/deploy`, {
+        method: "POST",
+        headers: headers({ sign: true }),
+        body: JSON.stringify({
+          ...body,
+          _vault: { evmKey },
+        }),
+      });
+      return readJson(res);
+    });
+  }
+
+  return { login, positions, close, lookup, deploy };
 }

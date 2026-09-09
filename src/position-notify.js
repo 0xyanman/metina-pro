@@ -450,6 +450,7 @@ export function formatHelpMessage() {
     "🤖 <b>Metina TPSL Bot Commands</b>",
     "",
     "• <code>/refresh</code> - Update &amp; kirim ringkasan posisi open terkini",
+    "• <code>/open &lt;0x token&gt; &lt;amount&gt; [chain]</code> - Buka LP via Metina Pro: <code>side=single</code> / <code>double</code> / <code>token</code> (butuh LIVE_OPEN=1)",
     "• <code>/close all</code> - Tutup semua posisi open (butuh LIVE_CLOSE=1)",
     "• <code>/close profit</code> - Tutup hanya posisi yang sedang profit (butuh LIVE_CLOSE=1)",
     "• <code>/close &lt;id atau nomor&gt;</code> - Tutup posisi tertentu (contoh: <code>/close 933596</code> atau <code>/close 1</code> sesuai nomor di ringkasan)",

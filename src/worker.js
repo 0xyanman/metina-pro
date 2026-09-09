@@ -6,6 +6,14 @@ import {
   formatHelpMessage,
   sortOpenPositions,
 } from "./position-notify.js";
+import {
+  parseOpenCommand,
+  pickOpenPool,
+  buildDeployPayload,
+  lookupBody,
+  formatOpenUsage,
+  formatOpenMessage,
+} from "./open-position.js";
 import { escapeHtml } from "./telegram.js";
 
 function now() {
@@ -198,6 +206,84 @@ export async function handleTelegramCommand(parsed, context) {
 
   if (cmd === "/close") {
     await handleCloseCommand(parsed, context);
+    return;
+  }
+
+  if (cmd === "/open") {
+    await handleOpenCommand(parsed, context);
+  }
+}
+
+async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen }) {
+  const spec = parseOpenCommand(parsed.args);
+  if (spec.error) {
+    await notifier?.send(formatOpenUsage());
+    return;
+  }
+
+  const openKey = `open:${spec.chain}:${spec.token}`;
+  if (inflight?.has(openKey)) {
+    await notifier?.send("⚠️ Open posisi ini masih diproses. Tunggu selesai dulu.");
+    return;
+  }
+
+  inflight?.add(openKey);
+  try {
+    await notifier?.send(
+      `⏳ Lookup pool untuk <code>${escapeHtml(spec.token)}</code>${spec.chain !== "auto" ? ` · ${escapeHtml(spec.chain)}` : ""}...`
+    );
+    const lookup = await client.lookup(lookupBody(spec));
+    const pool = pickOpenPool(lookup, spec);
+    if (!pool) {
+      await notifier?.send(
+        "⚠️ Tidak ada pool Uniswap yang bisa di-open. Coba chain lain, atau paste alamat token 0x."
+      );
+      return;
+    }
+
+    const payload = buildDeployPayload(lookup, pool, spec);
+    if (!liveOpen) {
+      await notifier?.send(formatOpenMessage({ lookup, pool, payload, dry: true }));
+      return;
+    }
+
+    const pair = pool.name || payload.pair || spec.token;
+    await notifier?.send(`⏳ Membuka <b>${escapeHtml(pair)}</b> via Metina Pro...`);
+    const result = await client.deploy(payload);
+    const ok = result?.success || result?.ok;
+    const dryRun = result?.dry_run || result?.dryRun;
+    if (!ok && !dryRun) {
+      await notifier?.send(
+        formatOpenMessage({
+          lookup,
+          pool,
+          payload,
+          error: result?.error || result?.message || "unknown",
+        })
+      );
+      return;
+    }
+    if (dryRun && !ok) {
+      await notifier?.send(
+        formatOpenMessage({
+          lookup,
+          pool,
+          payload,
+          error: result?.message || "Metina Pro DRY_RUN — deploy not executed",
+        })
+      );
+      return;
+    }
+    await notifier?.send(formatOpenMessage({ lookup, pool, payload, result }));
+  } catch (err) {
+    await notifier?.send(
+      formatOpenMessage({
+        payload: { pair: spec.token, chain: spec.chain },
+        error: err.message,
+      })
+    );
+  } finally {
+    inflight?.delete(openKey);
   }
 }
 
@@ -296,6 +382,11 @@ export async function startWorker(cfg, client, options = {}) {
       ? "LIVE_CLOSE=1 — will close when SL/TP hits"
       : "LIVE_CLOSE=0 — watch only. Set LIVE_CLOSE=1 in .env to close.",
   );
+  log(
+    cfg.liveOpen
+      ? "LIVE_OPEN=1 — Telegram /open will mint via Metina Pro"
+      : "LIVE_OPEN=0 — /open lookup only. Set LIVE_OPEN=1 in .env to mint.",
+  );
   if (notifier?.isEnabled()) {
     log("Telegram notifications enabled");
   }
@@ -307,12 +398,19 @@ export async function startWorker(cfg, client, options = {}) {
   if (notifier?.isEnabled() && typeof notifier.startCommandPoller === "function") {
     notifier.startCommandPoller(async (parsed) => {
       try {
-        await handleTelegramCommand(parsed, { client, notifier, tracker, inflight, liveClose: cfg.liveClose });
+        await handleTelegramCommand(parsed, {
+          client,
+          notifier,
+          tracker,
+          inflight,
+          liveClose: cfg.liveClose,
+          liveOpen: cfg.liveOpen,
+        });
       } catch (err) {
         log(`telegram command error: ${err.message}`);
       }
     });
-    log("Telegram command listener started (/refresh, /close, /help)");
+    log("Telegram command listener started (/refresh, /close, /open, /help)");
   }
 
   const once = async () => {

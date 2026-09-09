@@ -315,4 +315,107 @@ describe("handleTelegramCommand", () => {
     // Summary sorts HOOD10 before MARTIANS, so /close 1 must close HOOD10
     assert.equal(closedId, "933597");
   });
+
+  test("/open without args sends usage", async () => {
+    const sent = [];
+    const notifier = {
+      send: async (msg) => {
+        sent.push(msg);
+        return { ok: true };
+      },
+    };
+    await handleTelegramCommand(
+      { cmd: "/open", args: [], raw: "/open" },
+      { client: {}, notifier, inflight: new Set(), liveOpen: true }
+    );
+    assert.equal(sent.length, 1);
+    assert.match(sent[0], /butuh token EVM/);
+  });
+
+  test("/open with LIVE_OPEN off looks up but does not deploy", async () => {
+    const sent = [];
+    let deployed = 0;
+    const notifier = {
+      send: async (msg) => {
+        sent.push(msg);
+        return { ok: true };
+      },
+    };
+    const token = "0x1111111111111111111111111111111111111111";
+    const client = {
+      lookup: async () => ({
+        type: "uniswap",
+        token: { mint: token, pair: "MEME/USDG", chain: "robinhood" },
+        pools: [{
+          venue: "uniswap",
+          pool: "0x2222222222222222222222222222222222222222",
+          name: "MEME/USDG",
+          openable: true,
+          chain: "robinhood",
+          quote_symbol: "USDG",
+        }],
+      }),
+      deploy: async () => {
+        deployed += 1;
+        return { ok: true, success: true };
+      },
+    };
+
+    await handleTelegramCommand(
+      { cmd: "/open", args: [token, "0.5", "robinhood"], raw: `/open ${token} 0.5 robinhood` },
+      { client, notifier, inflight: new Set(), liveOpen: false }
+    );
+
+    assert.equal(deployed, 0);
+    assert.match(sent.join("\n"), /Would Open/);
+    assert.match(sent.join("\n"), /LIVE_OPEN=0/);
+  });
+
+  test("/open with LIVE_OPEN on deploys the picked Uniswap pool", async () => {
+    const sent = [];
+    let deployed = null;
+    const notifier = {
+      send: async (msg) => {
+        sent.push(msg);
+        return { ok: true };
+      },
+    };
+    const token = "0x1111111111111111111111111111111111111111";
+    const client = {
+      lookup: async (body) => {
+        assert.equal(body.token, token);
+        assert.equal(body.chain, "robinhood");
+        return {
+          type: "uniswap",
+          token: { mint: token, pair: "MEME/USDG", chain: "robinhood" },
+          pools: [{
+            venue: "uniswap",
+            pool: "0x2222222222222222222222222222222222222222",
+            name: "MEME/USDG",
+            openable: true,
+            chain: "robinhood",
+            quote_symbol: "USDG",
+            token_address: token,
+          }],
+        };
+      },
+      deploy: async (body) => {
+        deployed = body;
+        return { ok: true, success: true, tx: "0xopen", position: "42" };
+      },
+    };
+
+    await handleTelegramCommand(
+      { cmd: "/open", args: [token, "0.5", "robinhood", "sl=-50", "tp=20"], raw: `/open ${token} 0.5 robinhood sl=-50 tp=20` },
+      { client, notifier, inflight: new Set(), liveOpen: true }
+    );
+
+    assert.equal(deployed.venue, "uniswap");
+    assert.equal(deployed.pool, "0x2222222222222222222222222222222222222222");
+    assert.equal(deployed.amount_usdg, 0.5);
+    assert.equal(deployed.stop_loss, -50);
+    assert.equal(deployed.take_profit, 20);
+    assert.match(sent.join("\n"), /Position Opened/);
+    assert.match(sent.join("\n"), /0xopen/);
+  });
 });

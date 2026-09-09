@@ -76,6 +76,7 @@ export function loadConfig() {
     pollMs: Math.max(15_000, envNum("POLL_MS", 45_000)),
     discoverEvery: Math.max(1, Math.round(envNum("DISCOVER_EVERY", 8))),
     liveClose: envOn("LIVE_CLOSE", false),
+    liveOpen: envOn("LIVE_OPEN", false),
     telegram,
   };
 }

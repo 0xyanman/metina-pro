@@ -269,6 +269,7 @@ describe("position-notify formatting", () => {
     const help = formatHelpMessage();
     assert.match(help, /Metina TPSL Bot Commands/);
     assert.match(help, /\/refresh/);
+    assert.match(help, /\/open/);
     assert.match(help, /\/close/);
   });
 
