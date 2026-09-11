@@ -157,4 +157,34 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     assert.equal(evaluateExit({ readonly: true, stop_loss_pct: -10, pnl_reliable: true, pnl: { pnl_pct: -80, pnl_reliable: true } }).action, null);
     assert.equal(evaluateExit({ closed_on_chain: true, stop_loss_pct: -10, pnl_reliable: true, pnl: { pnl_pct: -80, pnl_reliable: true } }).action, null);
   });
+
+  test("claim-only fee lag does not trip take profit", () => {
+    const staleHarvest = evaluateExit({
+      poolType: "uniswap",
+      take_profit_pct: 3,
+      stop_loss_pct: -15,
+      pnl: {
+        pnl_pct: 8.2,
+        pnl_usd: 0,
+        unclaimed_fee_usd: 40,
+        fees_claimed_usd: 40,
+        current_value_usd: 1000,
+      },
+    });
+    assert.equal(staleHarvest.action, null);
+
+    const justClaimed = evaluateExit({
+      poolType: "uniswap",
+      take_profit_pct: 3,
+      fees_claimed_at: new Date().toISOString(),
+      pnl: {
+        pnl_pct: 10.14,
+        pnl_usd: 9.13,
+        unclaimed_fee_usd: 0,
+        fees_claimed_usd: 40,
+        current_value_usd: 90.06,
+      },
+    });
+    assert.equal(justClaimed.action, null);
+  });
 });
