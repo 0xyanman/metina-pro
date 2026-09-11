@@ -10,6 +10,51 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function positiveFeeUsd(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Lifetime claimed + leftover unclaimed.
+ * After Claim only, Unclaimed often still shows the harvest while Collected
+ * already jumped — adding both fakes a huge Live PnL and trips Auto TP.
+ */
+export function openFeesUsd(unclaimed, claimed) {
+  const u = positiveFeeUsd(unclaimed);
+  const c = positiveFeeUsd(claimed);
+  if (!(c >= 0.01) || !(u >= 0.01)) return u + c;
+  if (c > u + Math.max(1, u * 0.25)) return u + c;
+  return Math.max(u, c);
+}
+
+/** Skip Auto TP for a few minutes after Claim only — indexer lag. */
+export const CLAIM_TP_COOLDOWN_MS = 180_000;
+
+function feeBuckets(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const unclaimed = num(pnl.unclaimed_fee_usd ?? position?.unclaimed_fees_usd) || 0;
+  const claimed = num(pnl.fees_claimed_usd ?? pnl.fees_claimed_usdg ?? position?.fees_claimed_usd) || 0;
+  return { pnl, unclaimed, claimed, fees: openFeesUsd(unclaimed, claimed) };
+}
+
+export function skipTakeProfitAfterClaim(position) {
+  const { pnl, unclaimed, claimed } = feeBuckets(position);
+  const at = position?.fees_claimed_at ?? pnl.fees_claimed_at;
+  if (at) {
+    const t = Date.parse(at);
+    if (Number.isFinite(t) && Date.now() - t >= 0 && Date.now() - t < CLAIM_TP_COOLDOWN_MS) {
+      return true;
+    }
+  }
+  if (!(unclaimed >= 0.01) || !(claimed >= 0.01)) return false;
+  if (claimed > unclaimed + Math.max(1, unclaimed * 0.25)) return false;
+  const usd = num(pnl.pnl_usd ?? position?.pnl_usd);
+  const nearZero = usd == null || Math.abs(usd) < 0.01;
+  const looksLikeUnclaimed = usd != null && Math.abs(usd - unclaimed) <= Math.max(1, unclaimed * 0.2);
+  return nearZero || looksLikeUnclaimed;
+}
+
 export function positionKey(p) {
   const venue = String(p?.poolType || p?.venue || "uniswap").toLowerCase();
   const chain = String(p?.chain || "").toLowerCase();
@@ -22,13 +67,12 @@ export function livePnlPct(position) {
   const display = num(pnl.pnl_pct ?? position?.pnl_pct);
   const onchain = num(pnl.onchain_pnl_pct ?? position?.onchain_pnl_pct);
   const usd = num(pnl.pnl_usd ?? position?.pnl_usd);
-  const unclaimed = num(pnl.unclaimed_fee_usd ?? position?.unclaimed_fees_usd) || 0;
-  const claimed = num(pnl.fees_claimed_usd ?? pnl.fees_claimed_usdg ?? position?.fees_claimed_usd) || 0;
+  const { fees } = feeBuckets(position);
   const current = num(pnl.current_value_usd ?? position?.total_value_usd ?? position?.current_value_usd);
 
   let liveUsd = usd;
-  if ((liveUsd == null || Math.abs(liveUsd) < 0.005) && unclaimed + claimed >= 0.01) {
-    liveUsd = (liveUsd || 0) + unclaimed + claimed;
+  if ((liveUsd == null || Math.abs(liveUsd) < 0.005) && fees >= 0.01) {
+    liveUsd = (liveUsd || 0) + fees;
   }
 
   const mixed = (pct) => {
@@ -78,6 +122,9 @@ export function evaluateExit(position) {
     };
   }
   if (Number.isFinite(tp) && pnlPct >= tp) {
+    if (skipTakeProfitAfterClaim(position)) {
+      return { action: null, reason: null, kind: null };
+    }
     return {
       action: "close",
       kind: "take_profit",
