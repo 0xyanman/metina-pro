@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { closePayload, evaluateExit, positionKey, watchLine } from "../src/evaluate-exit.js";
+import { closePayload, evaluateExit, livePnlPct, livePnlUsd, positionKey, watchLine } from "../src/evaluate-exit.js";
 
 describe("TP/SL rules (same as Metina Pro desk)", () => {
   test("hits stop loss when on-chain PnL is reliable", () => {
@@ -53,6 +53,46 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
       take_profit_pct: 10,
     });
     assert.equal(liveBelow.action, null);
+  });
+
+  test("BLAST-style: SL uses LP value + fees, not on-chain inventory %", () => {
+    const blastOpen = {
+      poolType: "uniswap",
+      pair: "BLAST/USDG",
+      stop_loss_pct: -10,
+      pnl: {
+        pnl_pct: 5.29,
+        pnl_usd: 4.73,
+        onchain_pnl_pct: -10.61,
+        current_value_usd: 89.39,
+        unclaimed_fee_usd: 15.33,
+        fees_claimed_usd: 0,
+        amount_meme_usd: 34.97,
+        amount_eth_usd: 54.43,
+      },
+    };
+    assert.equal(evaluateExit(blastOpen).action, null);
+    assert.ok(livePnlPct(blastOpen) > 0);
+    assert.ok(livePnlUsd(blastOpen) > 4);
+
+    const blastCloseSnapshot = {
+      poolType: "uniswap",
+      pair: "BLAST/USDG",
+      stop_loss_pct: -10,
+      pnl: {
+        // API copied on-chain % into Live — that used to false-trigger SL -10%.
+        pnl_pct: -16.86,
+        pnl_usd: -2.28,
+        onchain_pnl_pct: -16.86,
+        current_value_usd: 83.14,
+        unclaimed_fee_usd: 14.76,
+        fees_claimed_usd: 0,
+      },
+    };
+    const hit = evaluateExit(blastCloseSnapshot);
+    assert.equal(hit.action, null, `live ${livePnlPct(blastCloseSnapshot)}% should not hit SL -10%`);
+    assert.ok(livePnlPct(blastCloseSnapshot) > -10);
+    assert.ok(Math.abs(livePnlUsd(blastCloseSnapshot) + 2.1) < 0.5);
   });
 
   test("falls back to on-chain % when Live PNL is missing", () => {

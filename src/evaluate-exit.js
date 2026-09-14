@@ -38,6 +38,72 @@ function feeBuckets(position) {
   return { pnl, unclaimed, claimed, fees: openFeesUsd(unclaimed, claimed) };
 }
 
+function lpSidesUsd(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const meme = num(pnl.amount_meme_usd ?? position?.amount_meme_usd);
+  const quote = num(
+    pnl.amount_eth_usd
+    ?? pnl.amount_sol_usd
+    ?? pnl.amount_quote_usd
+    ?? position?.amount_eth_usd
+    ?? position?.amount_sol_usd
+    ?? position?.amount_quote_usd,
+  );
+  const sides = (meme || 0) + (quote || 0);
+  return sides >= 0.01 ? sides : null;
+}
+
+function lpInventoryUsd(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const current = num(pnl.current_value_usd ?? position?.total_value_usd ?? position?.current_value_usd);
+  const sides = lpSidesUsd(position);
+  const unclaimed = num(pnl.unclaimed_fee_usd ?? position?.unclaimed_fees_usd) || 0;
+  // Prefer token sides when current already folded in unclaimed (would double-count).
+  if (sides != null && current != null && unclaimed >= 0.01
+    && current > sides + Math.max(1, unclaimed * 0.5)
+    && Math.abs(current - (sides + unclaimed)) <= Math.max(1, unclaimed * 0.25)) {
+    return sides;
+  }
+  if (current != null) return current;
+  return sides;
+}
+
+function entryCostUsd(position, inventory) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const entry = num(pnl.entry_value_usd ?? position?.initial_value_usd ?? position?.entry_value_usd);
+  if (entry != null && entry > 0) return entry;
+  const onchain = num(pnl.onchain_pnl_pct ?? position?.onchain_pnl_pct);
+  if (inventory != null && inventory > 0 && onchain != null && Math.abs(onchain) <= 500 && onchain > -99.9) {
+    const cost = inventory / (1 + onchain / 100);
+    if (cost > 0) return cost;
+  }
+  return null;
+}
+
+function mixedUnitPct(pct, liveUsd) {
+  if (pct == null || !Number.isFinite(pct) || Math.abs(pct) <= 500) return false;
+  return liveUsd == null || Math.abs(liveUsd) < 0.01;
+}
+
+/**
+ * Live USD = LP inventory (meme + USDG/ETH/…) + claimed/unclaimed fees − cost.
+ * Do not trust API pnl_pct when it is just the on-chain inventory mark.
+ */
+export function livePnlUsd(position) {
+  const { pnl, fees } = feeBuckets(position);
+  const printed = num(pnl.pnl_usd ?? position?.pnl_usd);
+  const inventory = lpInventoryUsd(position);
+  const cost = entryCostUsd(position, inventory);
+
+  if (inventory != null && cost != null && cost > 0) {
+    return inventory + fees - cost;
+  }
+  if ((printed == null || Math.abs(printed) < 0.005) && fees >= 0.01) {
+    return (printed || 0) + fees;
+  }
+  return printed;
+}
+
 export function skipTakeProfitAfterClaim(position) {
   const { pnl, unclaimed, claimed } = feeBuckets(position);
   const at = position?.fees_claimed_at ?? pnl.fees_claimed_at;
@@ -61,32 +127,27 @@ export function positionKey(p) {
   return `${venue}-${chain}-${p?.position || p?.tokenId || ""}`;
 }
 
-/** Same % the Open card prints as Live PNL. */
+/** Same % the Open card prints as Live PNL (inventory + fees vs cost). */
 export function livePnlPct(position) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
   const display = num(pnl.pnl_pct ?? position?.pnl_pct);
   const onchain = num(pnl.onchain_pnl_pct ?? position?.onchain_pnl_pct);
-  const usd = num(pnl.pnl_usd ?? position?.pnl_usd);
-  const { fees } = feeBuckets(position);
-  const current = num(pnl.current_value_usd ?? position?.total_value_usd ?? position?.current_value_usd);
+  const inventory = lpInventoryUsd(position);
+  const cost = entryCostUsd(position, inventory);
+  const liveUsd = livePnlUsd(position);
 
-  let liveUsd = usd;
-  if ((liveUsd == null || Math.abs(liveUsd) < 0.005) && fees >= 0.01) {
-    liveUsd = (liveUsd || 0) + fees;
+  if (liveUsd != null && cost != null && cost > 0) {
+    const fromMark = (liveUsd / cost) * 100;
+    if (Number.isFinite(fromMark) && !mixedUnitPct(fromMark, liveUsd)) return fromMark;
   }
 
-  const mixed = (pct) => {
-    if (pct == null || !Number.isFinite(pct) || Math.abs(pct) <= 500) return false;
-    return liveUsd == null || Math.abs(liveUsd) < 0.01;
-  };
-
-  if (display != null && Math.abs(display) >= 0.005 && !mixed(display)) return display;
-  if (liveUsd != null && Math.abs(liveUsd) >= 0.01 && current != null) {
-    const cost = current - liveUsd;
-    if (cost > 0) return (liveUsd / cost) * 100;
+  if (display != null && Math.abs(display) >= 0.005 && !mixedUnitPct(display, liveUsd)) return display;
+  if (liveUsd != null && Math.abs(liveUsd) >= 0.01 && inventory != null) {
+    const inferred = inventory - liveUsd;
+    if (inferred > 0) return (liveUsd / inferred) * 100;
   }
-  if (display != null && !mixed(display)) return display;
-  if (onchain != null && !mixed(onchain)) return onchain;
+  if (display != null && !mixedUnitPct(display, liveUsd)) return display;
+  if (onchain != null && !mixedUnitPct(onchain, liveUsd)) return onchain;
   return null;
 }
 
