@@ -180,7 +180,7 @@ describe("position-notify formatting", () => {
     };
     const block = formatPnlBlock(pos);
     assert.match(block, /PNL:/);
-    assert.match(block, /Live:\s+-3\.54%\s+\(-\$1\.06\)/);
+    assert.match(block, /Live:\s+-6\.49%\s+\(-\$2\.23\)/);
     assert.match(block, /On-chain:\s+-13\.38%/);
     assert.match(block, /Value:\s+\$29\.81/);
     assert.match(block, /Unclaimed fees:\s+\$0\.00/);

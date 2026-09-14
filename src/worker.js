@@ -1,4 +1,4 @@
-import { closePayload, evaluateExit, livePnlPct, positionKey, watchLine } from "./evaluate-exit.js";
+import { closePayload, evaluateExit, livePnlPct, livePnlUsd, positionKey, watchLine } from "./evaluate-exit.js";
 import {
   createPositionTracker,
   formatCloseMessage,
@@ -118,7 +118,7 @@ async function handleCloseProfit(client, notifier, tracker, inflight) {
   const profitPositions = open.filter((p) => {
     const pct = livePnlPct(p);
     if (pct != null) return pct > 0;
-    const usd = Number(p?.pnl?.pnl_usd ?? p?.pnl_usd);
+    const usd = livePnlUsd(p) ?? Number(p?.pnl?.pnl_usd ?? p?.pnl_usd);
     return Number.isFinite(usd) && usd > 0;
   });
 

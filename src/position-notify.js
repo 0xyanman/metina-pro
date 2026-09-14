@@ -1,4 +1,4 @@
-import { positionKey, livePnlPct } from "./evaluate-exit.js";
+import { positionKey, livePnlPct, livePnlUsd } from "./evaluate-exit.js";
 import { escapeHtml } from "./telegram.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -107,7 +107,7 @@ export function formatPnlBlock(position, labelPrefix = "") {
   const pnl = position.pnl && typeof position.pnl === "object" ? position.pnl : {};
 
   const livePct = livePnlPct(position);
-  const liveUsd = num(pnl.pnl_usd ?? position.pnl_usd);
+  const liveUsd = livePnlUsd(position) ?? num(pnl.pnl_usd ?? position.pnl_usd);
   const onchainPct = num(pnl.onchain_pnl_pct ?? position.onchain_pnl_pct);
   const valueUsd = num(pnl.current_value_usd ?? position.total_value_usd ?? position.current_value_usd);
   const unclaimedUsd = num(pnl.unclaimed_fee_usd ?? position.unclaimed_fees_usd);
@@ -201,7 +201,7 @@ export function formatAllPnlSummary(positions) {
 
   for (const p of positions) {
     const pnl = p?.pnl && typeof p.pnl === "object" ? p.pnl : {};
-    const usd = num(pnl.pnl_usd ?? p?.pnl_usd);
+    const usd = livePnlUsd(p) ?? num(pnl.pnl_usd ?? p?.pnl_usd);
     if (usd != null) {
       totalUsd += usd;
       hasUsd = true;
