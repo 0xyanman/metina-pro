@@ -124,6 +124,13 @@ export function skipTakeProfitAfterClaim(position) {
 export function positionKey(p) {
   const venue = String(p?.poolType || p?.venue || "uniswap").toLowerCase();
   const chain = String(p?.chain || "").toLowerCase();
+  const ids = Array.isArray(p?.ladder_token_ids)
+    ? [...new Set(p.ladder_token_ids.map((id) => String(id || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    : [];
+  if (ids.length > 1) {
+    return `${venue}-${chain}-lad:${ids.join(",")}`;
+  }
   return `${venue}-${chain}-${p?.position || p?.tokenId || ""}`;
 }
 
@@ -211,6 +218,9 @@ export function watchLine(position) {
 }
 
 export function closePayload(p, extra = {}) {
+  const ids = Array.isArray(p.ladder_token_ids)
+    ? p.ladder_token_ids.map((id) => String(id)).filter(Boolean)
+    : [];
   return {
     venue: String(p.poolType || p.venue || "uniswap").toLowerCase() === "dlmm" ? "dlmm" : "uniswap",
     position: p.position || p.tokenId,
@@ -222,6 +232,9 @@ export function closePayload(p, extra = {}) {
     fee: p.fee,
     version: p.version,
     dex: p.dex,
+    strategy: p.strategy || p.pnl?.strategy || null,
+    ladder_id: p.ladder_id || null,
+    ladder_token_ids: ids.length > 1 ? ids : undefined,
     snapshot: p,
     ...extra,
   };

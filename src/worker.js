@@ -15,6 +15,8 @@ import {
   formatOpenMessage,
 } from "./open-position.js";
 import { createCommandGate, formatCooldownMessage } from "./command-gate.js";
+import { shouldFetchOpenInventory } from "./open-fetch.js";
+import { collapseOpenLadders } from "./bid-ask.js";
 import { escapeHtml } from "./telegram.js";
 
 function now() {
@@ -25,10 +27,26 @@ function log(msg) {
   console.log(`[${now()}] ${msg}`);
 }
 
-async function getOpenPositions(client, discover = false) {
-  const data = await client.positions({ discover });
+function openFetchOpts(arg) {
+  if (arg && typeof arg === "object") {
+    return {
+      discover: arg.discover === true,
+      hydrate: arg.hydrate !== false,
+    };
+  }
+  return { discover: arg === true, hydrate: true };
+}
+
+async function getOpenPositions(client, arg = false) {
+  const { discover, hydrate } = openFetchOpts(arg);
+  const data = await client.positions({ discover, hydrate });
   const list = Array.isArray(data?.positions) ? data.positions : [];
-  return list.filter((p) => !p.closed_on_chain && !p.readonly);
+  const live = list.filter((p) => !p.closed_on_chain && !p.readonly);
+  return collapseOpenLadders(live);
+}
+
+function fullOpenFetch() {
+  return { discover: true, hydrate: true };
 }
 
 async function handleHelpCommand(notifier) {
@@ -38,7 +56,7 @@ async function handleHelpCommand(notifier) {
 async function handleRefreshCommand(client, notifier, commandGate) {
   commandGate?.mark("/refresh");
   await notifier?.send("⏳ Mengambil data posisi terbaru...");
-  const open = await getOpenPositions(client, true);
+  const open = await getOpenPositions(client, fullOpenFetch());
   if (open.length === 0) {
     await notifier?.send("📂 Tidak ada posisi open saat ini.");
     return;
@@ -109,7 +127,7 @@ async function handleCloseAll(client, notifier, tracker, inflight, open) {
 }
 
 async function handleCloseProfit(client, notifier, tracker, inflight) {
-  const open = await getOpenPositions(client, true);
+  const open = await getOpenPositions(client, fullOpenFetch());
   if (open.length === 0) {
     await notifier?.send("⚠️ Tidak ada posisi open yang bisa ditutup.");
     return;
@@ -141,7 +159,9 @@ async function handleCloseSpecific(client, notifier, tracker, inflight, open, ta
   const sorted = sortOpenPositions(open);
   const pos = sorted.find((p, idx) => {
     const pId = String(p.position || p.tokenId || "").toLowerCase();
-    return pId === target || String(idx + 1) === target;
+    if (pId === target || String(idx + 1) === target) return true;
+    const ids = Array.isArray(p.ladder_token_ids) ? p.ladder_token_ids : [];
+    return ids.some((id) => String(id).toLowerCase() === target);
   });
 
   if (!pos) {
@@ -181,7 +201,7 @@ async function handleCloseCommand(parsed, { client, notifier, tracker, inflight,
     return;
   }
 
-  const open = await getOpenPositions(client, true);
+  const open = await getOpenPositions(client, fullOpenFetch());
 
   if (open.length === 0) {
     await notifier?.send("⚠️ Tidak ada posisi open yang bisa ditutup.");
@@ -290,6 +310,11 @@ async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen,
       return;
     }
     await notifier?.send(formatOpenMessage({ lookup, pool, payload, result }));
+    try {
+      await getOpenPositions(client, fullOpenFetch());
+    } catch {
+      /* next watch tick retries */
+    }
   } catch (err) {
     await notifier?.send(
       formatOpenMessage({
@@ -303,9 +328,9 @@ async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen,
   }
 }
 
-export async function runCycle(client, { liveClose, discover }, inflight, options = {}) {
+export async function runCycle(client, { liveClose, discover, hydrate = true }, inflight, options = {}) {
   const { notifier, tracker } = options;
-  const open = await getOpenPositions(client, discover);
+  const open = await getOpenPositions(client, { discover: discover === true, hydrate });
   let hits = 0;
   const dryHits = new Set();
 
@@ -444,15 +469,18 @@ export async function startWorker(cfg, client, options = {}) {
     }
     busy = true;
     tick += 1;
-    const discover = tick === 1 || tick % cfg.discoverEvery === 0;
+    const { discover, hydrate } = shouldFetchOpenInventory(tick, {
+      discoverEvery: cfg.discoverEvery,
+      hydrateEvery: cfg.hydrateEvery,
+    });
     try {
       const { count, hits } = await runCycle(
         client,
-        { liveClose: cfg.liveClose, discover },
+        { liveClose: cfg.liveClose, discover, hydrate },
         inflight,
         { notifier, tracker },
       );
-      log(`watch ${count} open · hits ${hits}${discover ? " · discover" : ""}`);
+      log(`watch ${count} open · hits ${hits}${hydrate ? "" : " · lite"}${discover ? " · discover" : ""}`);
     } catch (err) {
       log(`cycle failed: ${err.message}`);
     } finally {

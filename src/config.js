@@ -1,4 +1,5 @@
 import { privateKeyToAccount } from "viem/accounts";
+import { ticksForInterval } from "./open-fetch.js";
 
 function envStr(name, fallback = "") {
   return String(process.env[name] ?? fallback).trim();
@@ -66,6 +67,7 @@ export function loadConfig() {
     }
     : null;
 
+  const pollMs = Math.max(15_000, envNum("POLL_MS", 45_000));
   return {
     metinaUrl,
     email,
@@ -73,8 +75,9 @@ export function loadConfig() {
     evmKey,
     address,
     rpcs,
-    pollMs: Math.max(15_000, envNum("POLL_MS", 45_000)),
-    discoverEvery: Math.max(1, Math.round(envNum("DISCOVER_EVERY", 8))),
+    pollMs,
+    discoverEvery: Math.max(1, Math.round(envNum("DISCOVER_EVERY", ticksForInterval(20 * 60_000, pollMs)))),
+    hydrateEvery: Math.max(1, Math.round(envNum("HYDRATE_EVERY", ticksForInterval(3 * 60_000, pollMs)))),
     liveClose: envOn("LIVE_CLOSE", false),
     liveOpen: envOn("LIVE_OPEN", false),
     telegramCmdIntervalMs: Math.max(500, envNum("TELEGRAM_CMD_INTERVAL_MS", 2_000)),
@@ -83,4 +86,5 @@ export function loadConfig() {
     telegram,
   };
 }
+
 

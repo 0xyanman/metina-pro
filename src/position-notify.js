@@ -234,6 +234,10 @@ function extractPositionTags(p) {
   const tags = [];
   if (p.version) tags.push(p.version.toUpperCase());
   if (p.poolType?.toLowerCase() === "dlmm") tags.push("DLMM");
+  const strategy = String(p.strategy || p.pnl?.strategy || "").toLowerCase().replace(/-/g, "_");
+  if (strategy === "bid_ask" || (Array.isArray(p.ladder_token_ids) && p.ladder_token_ids.length > 1)) {
+    tags.push("Bid-Ask");
+  }
   if (p.dex) tags.push(p.dex);
   if (p.source) tags.push(p.source);
   if (p.agent || p.lp_agent || p.is_lp_agent) tags.push("LPAgent");

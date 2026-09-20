@@ -69,10 +69,11 @@ export function createClient({ metinaUrl, email, password, evmKey, address, rpcs
     }
   }
 
-  async function positions({ discover = false } = {}) {
+  async function positions({ discover = false, hydrate = true } = {}) {
     return withAuth(async () => {
       const qs = new URLSearchParams();
       qs.set("discover", discover ? "1" : "0");
+      qs.set("hydrate", hydrate ? "1" : "0");
       const res = await fetch(`${metinaUrl}/api/web/positions?${qs}`, {
         headers: headers(),
       });

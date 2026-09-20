@@ -31,9 +31,11 @@ describe("handleTelegramCommand", () => {
     };
 
     let capturedDiscover = false;
+    let capturedHydrate = false;
     const client = {
-      positions: async ({ discover }) => {
+      positions: async ({ discover, hydrate }) => {
         capturedDiscover = discover;
+        capturedHydrate = hydrate;
         return {
           positions: [
             {
@@ -52,6 +54,7 @@ describe("handleTelegramCommand", () => {
     );
 
     assert.equal(capturedDiscover, true);
+    assert.equal(capturedHydrate, true);
     assert.equal(sent.length, 2);
     assert.match(sent[0], /Mengambil data posisi/);
     assert.match(sent[1], /Open Positions/);
@@ -402,6 +405,11 @@ describe("handleTelegramCommand", () => {
       deploy: async (body) => {
         deployed = body;
         return { ok: true, success: true, tx: "0xopen", position: "42" };
+      },
+      positions: async ({ discover, hydrate }) => {
+        assert.equal(discover, true);
+        assert.equal(hydrate, true);
+        return { positions: [] };
       },
     };
 
