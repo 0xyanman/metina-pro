@@ -247,4 +247,31 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     });
     assert.equal(justClaimed.action, null);
   });
+
+  test("Bid-Ask $0 current with token sides is not −100% SL", () => {
+    const hit = evaluateExit({
+      poolType: "uniswap",
+      strategy: "bid_ask",
+      stop_loss_pct: -50,
+      take_profit_pct: 10,
+      total_value_usd: 0,
+      entry_value_usd: 100,
+      pnl: {
+        current_value_usd: 0,
+        entry_value_usd: 100,
+        amount_eth_usd: 60,
+        amount_meme_usd: 35,
+        pnl_usd: 0,
+        pnl_pct: 0,
+      },
+    });
+    assert.equal(hit.action, null);
+    const pct = livePnlPct({
+      poolType: "uniswap",
+      entry_value_usd: 100,
+      total_value_usd: 0,
+      pnl: { current_value_usd: 0, entry_value_usd: 100, amount_eth_usd: 60, amount_meme_usd: 35 },
+    });
+    assert.ok(pct != null && pct > -50, pct);
+  });
 });

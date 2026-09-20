@@ -33,9 +33,28 @@ export const CLAIM_TP_COOLDOWN_MS = 180_000;
 
 function feeBuckets(position) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
-  const unclaimed = num(pnl.unclaimed_fee_usd ?? position?.unclaimed_fees_usd) || 0;
-  const claimed = num(pnl.fees_claimed_usd ?? pnl.fees_claimed_usdg ?? position?.fees_claimed_usd) || 0;
+  const unclaimed = firstPositive(
+    pnl.unclaimed_fee_usd,
+    position?.unclaimed_fees_usd,
+    pnl.unclaimed_fees_quote,
+    position?.unclaimed_fees_quote,
+  ) || 0;
+  const claimed = firstPositive(
+    pnl.fees_claimed_usd,
+    pnl.fees_claimed_usdg,
+    position?.fees_claimed_usd,
+    pnl.collected_fees_usd,
+    position?.collected_fees_usd,
+  ) || 0;
   return { pnl, unclaimed, claimed, fees: openFeesUsd(unclaimed, claimed) };
+}
+
+function firstPositive(...vals) {
+  for (const v of vals) {
+    const n = num(v);
+    if (n != null && n > 0) return n;
+  }
+  return null;
 }
 
 function lpSidesUsd(position) {
@@ -49,15 +68,21 @@ function lpSidesUsd(position) {
     ?? position?.amount_sol_usd
     ?? position?.amount_quote_usd,
   );
-  const sides = (meme || 0) + (quote || 0);
+  const sides = (meme > 0 ? meme : 0) + (quote > 0 ? quote : 0);
   return sides >= 0.01 ? sides : null;
 }
 
 function lpInventoryUsd(position) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
-  const current = num(pnl.current_value_usd ?? position?.total_value_usd ?? position?.current_value_usd);
+  // $0 Bid-Ask / LPAgent marks still have token sides — do not treat as −100% SL.
+  const current = firstPositive(pnl.current_value_usd, position?.total_value_usd, position?.current_value_usd);
   const sides = lpSidesUsd(position);
-  const unclaimed = num(pnl.unclaimed_fee_usd ?? position?.unclaimed_fees_usd) || 0;
+  const unclaimed = firstPositive(
+    pnl.unclaimed_fee_usd,
+    position?.unclaimed_fees_usd,
+    pnl.unclaimed_fees_quote,
+    position?.unclaimed_fees_quote,
+  ) || 0;
   // Prefer token sides when current already folded in unclaimed (would double-count).
   if (sides != null && current != null && unclaimed >= 0.01
     && current > sides + Math.max(1, unclaimed * 0.5)
@@ -70,8 +95,14 @@ function lpInventoryUsd(position) {
 
 function entryCostUsd(position, inventory) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
-  const entry = num(pnl.entry_value_usd ?? position?.initial_value_usd ?? position?.entry_value_usd);
-  if (entry != null && entry > 0) return entry;
+  const entry = firstPositive(
+    pnl.entry_value_usd,
+    position?.initial_value_usd,
+    position?.entry_value_usd,
+    position?.input_value,
+    pnl.entry_value_eth,
+  );
+  if (entry != null) return entry;
   const onchain = num(pnl.onchain_pnl_pct ?? position?.onchain_pnl_pct);
   if (inventory != null && inventory > 0 && onchain != null && Math.abs(onchain) <= 500 && onchain > -99.9) {
     const cost = inventory / (1 + onchain / 100);
