@@ -189,6 +189,34 @@ export function livePnlPct(position) {
   return null;
 }
 
+function isBidAskPosition(p) {
+  const s = String(p?.strategy || p?.pnl?.strategy || "").toLowerCase().replace(/-/g, "_");
+  if (s === "bid_ask" || s === "bidask") return true;
+  const ids = p?.ladder_token_ids;
+  return Array.isArray(ids) && ids.length > 1;
+}
+
+function bidAskRungCount(p) {
+  const n = Number(p?.ladder_rungs);
+  if (Number.isFinite(n) && n > 1) return n;
+  const ids = p?.ladder_token_ids;
+  return Array.isArray(ids) && ids.length > 1 ? ids.length : 1;
+}
+
+/**
+ * Bid-Ask Auto TP/SL only on collapsed Live % with a full ladder mark.
+ * Skip $0-without-sides, one indexed rung vs full cost, and wild indexer %.
+ */
+function bidAskExitReady(position, pnlPct) {
+  if (!isBidAskPosition(position)) return true;
+  const inventory = lpInventoryUsd(position);
+  const cost = entryCostUsd(position, inventory);
+  if (!(cost >= 1) || !(inventory >= 1)) return false;
+  if (pnlPct != null && Number.isFinite(pnlPct) && Math.abs(pnlPct) > 200) return false;
+  if (bidAskRungCount(position) >= 2 && inventory < cost * 0.4) return false;
+  return true;
+}
+
 export function evaluateExit(position) {
   if (!position || position.closed_on_chain || position.readonly) {
     return { action: null, reason: null, kind: null };
@@ -212,6 +240,9 @@ export function evaluateExit(position) {
     pnlPct = num(pnl.pnl_pct ?? position.pnl_pct ?? pnl.pnl_sol_pct);
   }
   if (pnlPct == null) return { action: null, reason: null, kind: null };
+  if (!bidAskExitReady(position, pnlPct)) {
+    return { action: null, reason: null, kind: null };
+  }
 
   if (Number.isFinite(sl) && pnlPct <= sl) {
     return {
