@@ -17,6 +17,22 @@ function firstFinite(...vals) {
   return null;
 }
 
+function firstPositive(...vals) {
+  for (const v of vals) {
+    const n = num(v);
+    if (n != null && n > 0) return n;
+  }
+  return null;
+}
+
+function inventoryUsdFromSides(m) {
+  const pnl = m?.pnl && typeof m.pnl === "object" ? m.pnl : {};
+  const q = num(pnl.amount_eth_usd ?? m?.amount_quote_usd ?? m?.amount_eth_usd ?? pnl.amount_sol_usd ?? m?.amount_sol_usd);
+  const meme = num(pnl.amount_meme_usd ?? m?.amount_meme_usd);
+  const sum = (q > 0 ? q : 0) + (meme > 0 ? meme : 0);
+  return sum > 0 ? sum : null;
+}
+
 function posTokenId(p) {
   return String(p?.tokenId || p?.position || "");
 }
@@ -107,7 +123,7 @@ function adjacentTickRun(members) {
 }
 
 function isLikelyLadder(group) {
-  if (!group || group.length < 2 || group.length > 4) return false;
+  if (!group || group.length < 2 || group.length > 3) return false;
   if (adjacentTickRun(group) && openedTogether(group)) return true;
   if (consecutiveIds(group) && (group.length >= 3 || openedTogether(group))) return true;
   return group.length >= 3 && openedTogether(group);
@@ -122,10 +138,10 @@ function relatedToGroup(group, p) {
 function absorbRelated(leftover, group) {
   const out = [...(group || [])];
   let grew = true;
-  while (grew && out.length < 4) {
+  while (grew && out.length < 3) {
     grew = false;
     for (const p of leftover) {
-      if (out.includes(p) || out.length >= 4) continue;
+      if (out.includes(p) || out.length >= 3) continue;
       if (!relatedToGroup(out, p)) continue;
       out.push(p);
       leftover.delete(p);
@@ -155,7 +171,7 @@ function clusterLadderMembers(members) {
       continue;
     }
     const prev = run[run.length - 1];
-    if (tickHi(prev) === tickLo(p) && run.length < 4) {
+    if (tickHi(prev) === tickLo(p) && run.length < 3) {
       run.push(p);
       continue;
     }
@@ -173,7 +189,7 @@ function clusterLadderMembers(members) {
       window = [p];
       continue;
     }
-    if (openedMs(p) - openedMs(window[0]) <= 90_000 && window.length < 4) {
+    if (openedMs(p) - openedMs(window[0]) <= 90_000 && window.length < 3) {
       window.push(p);
       continue;
     }
@@ -193,7 +209,7 @@ function clusterLadderMembers(members) {
     }
     const prev = Number(posTokenId(ids[ids.length - 1]));
     const next = Number(posTokenId(p));
-    if (next === prev + 1 && ids.length < 4) {
+    if (next === prev + 1 && ids.length < 3) {
       ids.push(p);
       continue;
     }
@@ -277,12 +293,17 @@ function quoteIsStable(m) {
 
 function memberMarkUsd(m) {
   const pnl = m?.pnl && typeof m.pnl === "object" ? m.pnl : {};
-  return firstFinite(m.total_value_usd, m.current_value_usd, pnl.current_value_usd);
+  return firstPositive(
+    m.total_value_usd,
+    m.current_value_usd,
+    pnl.current_value_usd,
+    inventoryUsdFromSides(m),
+  );
 }
 
 function memberEntryUsd(m) {
   const pnl = m?.pnl && typeof m.pnl === "object" ? m.pnl : {};
-  const explicit = firstFinite(
+  const explicit = firstPositive(
     m.initial_value_usd,
     m.entry_value_usd,
     m.input_value,
@@ -308,16 +329,41 @@ function sumPicked(members, pick) {
   return any ? sum : null;
 }
 
-/** Mint used to copy the full deploy onto every rung — do not sum those clones. */
+function nearUsd(a, b) {
+  return Math.abs(a - b) <= Math.max(0.05, Math.max(Math.abs(a), Math.abs(b)) * 0.08);
+}
+
+/** Overlay cost next to leftover 3:2 slices — keep overlay, do not sum. */
+function overlayPlusSlicesUsd(entries) {
+  if (!Array.isArray(entries) || entries.length !== 3) return null;
+  const s = [...entries].filter((n) => n != null && n > 0).sort((a, b) => b - a);
+  if (s.length !== 3) return null;
+  const [max, hi, lo] = s;
+  if (!(lo > 0)) return null;
+  let reconstructed = null;
+  if (nearUsd(hi, lo * 1.5)) reconstructed = hi + lo + lo / 2;
+  else if (nearUsd(hi, lo * 2)) reconstructed = hi + lo + hi * 1.5;
+  else if (nearUsd(hi, lo * 3)) reconstructed = hi + lo + (hi * 2) / 3;
+  if (reconstructed != null && nearUsd(reconstructed, max)) return max;
+  return null;
+}
+
+function collapseLadderCosts(entries, mark) {
+  const vals = (entries || []).filter((n) => n != null && Number(n) > 0).map(Number);
+  if (!vals.length) return null;
+  if (vals.length === 1) return vals[0];
+  const first = vals[0];
+  const same = vals.every((e) => Math.abs(e - first) <= Math.max(0.05, first * 0.02));
+  if (same && mark != null && first * vals.length > mark * 1.55) return first;
+  const overlay = overlayPlusSlicesUsd(vals);
+  if (overlay != null) return overlay;
+  return vals.reduce((a, b) => a + b, 0);
+}
+
+/** Mint clones and overlay+slice leftovers must not be added together. */
 function ladderBasisUsd(members) {
-  const entries = (members || []).map(memberEntryUsd).filter((n) => n != null && n > 0);
   const mark = sumPicked(members, memberMarkUsd);
-  if (entries.length >= 2) {
-    const first = entries[0];
-    const same = entries.every((e) => Math.abs(e - first) <= Math.max(0.05, first * 0.02));
-    if (same && mark != null && first * entries.length > mark * 1.55) return first;
-  }
-  return sumPicked(members, memberEntryUsd);
+  return collapseLadderCosts((members || []).map(memberEntryUsd), mark);
 }
 
 function memberPnlUsd(m) {
@@ -353,7 +399,16 @@ function latestClaimAt(members) {
 }
 
 function mergeLadderGroup(members, gid) {
-  const sorted = [...members].sort((a, b) => {
+  const unique = [];
+  const seenMembers = new Set();
+  for (const m of members || []) {
+    const id = posTokenId(m);
+    const key = id || `row:${unique.length}`;
+    if (seenMembers.has(key)) continue;
+    seenMembers.add(key);
+    unique.push(m);
+  }
+  const sorted = unique.sort((a, b) => {
     const pa = a.ladder_primary === true ? 0 : 1;
     const pb = b.ladder_primary === true ? 0 : 1;
     if (pa !== pb) return pa - pb;
@@ -402,6 +457,18 @@ function mergeLadderGroup(members, gid) {
     primary.total_value_usd = mark;
     primary.current_value_usd = mark;
   }
+  const quoteUsd = sumPicked(sorted, (m) => firstPositive(
+    m.amount_eth_usd,
+    m.pnl?.amount_eth_usd,
+    m.amount_quote_usd,
+    m.pnl?.amount_quote_usd,
+  ));
+  const memeUsd = sumPicked(sorted, (m) => firstPositive(m.amount_meme_usd, m.pnl?.amount_meme_usd));
+  if (quoteUsd != null) {
+    primary.amount_eth_usd = quoteUsd;
+    primary.amount_quote_usd = quoteUsd;
+  }
+  if (memeUsd != null) primary.amount_meme_usd = memeUsd;
   if (basis != null) {
     primary.initial_value_usd = basis;
     primary.entry_value_usd = basis;
@@ -415,25 +482,40 @@ function mergeLadderGroup(members, gid) {
   const claimedAt = latestClaimAt(sorted);
   if (claimedAt) primary.fees_claimed_at = claimedAt;
 
-  const unclaimed = sumPicked(sorted, (m) => firstFinite(
+  const unclaimedUsd = sumPicked(sorted, (m) => firstPositive(
     m.unclaimed_fee_usd,
     m.unclaimed_fees_usd,
     m.pnl?.unclaimed_fee_usd,
   ));
-  const claimed = sumPicked(sorted, (m) => firstFinite(
+  const unclaimedQuote = sumPicked(sorted, (m) => firstPositive(
+    m.unclaimed_fees_quote,
+    m.pnl?.unclaimed_fees_quote,
+  ));
+  const unclaimed = unclaimedUsd ?? unclaimedQuote;
+  const claimed = sumPicked(sorted, (m) => firstPositive(
     m.fees_claimed_usd,
     m.pnl?.fees_claimed_usd,
+    m.collected_fees_usd,
+    m.pnl?.collected_fees_usd,
   ));
   const pnlObj = primary.pnl && typeof primary.pnl === "object" ? { ...primary.pnl } : {};
   if (mark != null) pnlObj.current_value_usd = mark;
   if (basis != null) pnlObj.entry_value_usd = basis;
+  if (quoteUsd != null) pnlObj.amount_eth_usd = quoteUsd;
+  if (memeUsd != null) pnlObj.amount_meme_usd = memeUsd;
   if (unclaimed != null) {
     primary.unclaimed_fee_usd = unclaimed;
     pnlObj.unclaimed_fee_usd = unclaimed;
   }
+  if (unclaimedQuote != null) {
+    primary.unclaimed_fees_quote = unclaimedQuote;
+    pnlObj.unclaimed_fees_quote = unclaimedQuote;
+  }
   if (claimed != null) {
     primary.fees_claimed_usd = claimed;
+    primary.collected_fees_usd = claimed;
     pnlObj.fees_claimed_usd = claimed;
+    pnlObj.collected_fees_usd = claimed;
   }
   if (claimedAt) pnlObj.fees_claimed_at = claimedAt;
   pnlObj.strategy = "bid_ask";
@@ -448,33 +530,79 @@ function mergeLadderGroup(members, gid) {
   return primary;
 }
 
+/** Hide raw rungs once a collapsed Bid-Ask card already includes them. */
+export function dropCoveredLadderSiblings(positions) {
+  const rows = Array.isArray(positions) ? positions : [];
+  const covered = new Set();
+  for (const p of rows) {
+    if (!(Number(p?.ladder_rungs) > 1)) continue;
+    const ids = parseLadderIdList(p.ladder_token_ids);
+    if (ids.length < 2) continue;
+    const primary = posTokenId(p);
+    const chain = String(p.chain || "").toLowerCase();
+    for (const id of ids) {
+      if (String(id) === primary) continue;
+      covered.add(`${chain}:${id}`);
+    }
+  }
+  if (!covered.size) return rows;
+  return rows.filter((p) => {
+    if (Number(p?.ladder_rungs) > 1) return true;
+    const id = posTokenId(p);
+    const chain = String(p.chain || "").toLowerCase();
+    return !covered.has(`${chain}:${id}`);
+  });
+}
+
 export function collapseLadderPositions(positions) {
   const rows = Array.isArray(positions) ? positions : [];
   const groups = new Map();
-  const loose = [];
   for (const p of rows) {
     const gid = p?.ladder_id ? String(p.ladder_id) : "";
-    if (!gid) {
-      loose.push(p);
-      continue;
-    }
+    if (!gid) continue;
     if (!groups.has(gid)) groups.set(gid, []);
     groups.get(gid).push(p);
   }
-  const out = [...loose];
+  const merged = new Map();
   for (const [gid, members] of groups) {
-    out.push(members.length === 1 ? { ...members[0] } : mergeLadderGroup(members, gid));
+    merged.set(gid, members.length === 1 ? { ...members[0] } : mergeLadderGroup(members, gid));
+  }
+  const out = [];
+  const emitted = new Set();
+  for (const p of rows) {
+    const gid = p?.ladder_id ? String(p.ladder_id) : "";
+    if (!gid) {
+      out.push(p);
+      continue;
+    }
+    if (emitted.has(gid)) continue;
+    emitted.add(gid);
+    out.push(merged.get(gid));
+  }
+  return out;
+}
+
+function dedupeOpenRows(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const p of rows) {
+    const chain = String(p?.chain || "").toLowerCase();
+    const id = posTokenId(p);
+    const key = id ? `${chain}:${id}` : `row:${out.length}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
   }
   return out;
 }
 
 /** One Open row per Bid-Ask ladder; Spot LPs stay as-is. */
 export function collapseOpenLadders(positions) {
-  const rows = (Array.isArray(positions) ? positions : []).map((p) => ({ ...p }));
+  const rows = dedupeOpenRows((Array.isArray(positions) ? positions : []).map((p) => ({ ...p })));
   stampKnownLadders(rows, collectLadderGroups(rows));
   stampInferredLadders(rows);
   stampKnownLadders(rows, collectLadderGroups(rows));
-  return collapseLadderPositions(rows);
+  return collapseLadderPositions(dropCoveredLadderSiblings(rows));
 }
 
 export function isBidAskCard(p) {

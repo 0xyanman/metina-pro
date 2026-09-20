@@ -319,6 +319,78 @@ describe("handleTelegramCommand", () => {
     assert.equal(closedId, "933597");
   });
 
+  test("/close sibling Bid-Ask NFT id closes the whole ladder once", async () => {
+    const sent = [];
+    const closed = [];
+    const notifier = {
+      send: async (msg) => {
+        sent.push(msg);
+        return { ok: true };
+      },
+    };
+    const client = {
+      positions: async () => ({
+        positions: [
+          {
+            poolType: "uniswap",
+            chain: "robinhood",
+            tokenId: "10",
+            position: "10",
+            pair: "ASKR/USDG",
+            pool: "0xpool",
+            wallet: "0xabc",
+            created_at: "2026-09-19T12:00:00.000Z",
+            tick_lower: 100,
+            tick_upper: 200,
+            current_value_usd: 50,
+            input_value: 50,
+          },
+          {
+            poolType: "uniswap",
+            chain: "robinhood",
+            tokenId: "11",
+            position: "11",
+            pair: "ASKR/USDG",
+            pool: "0xpool",
+            wallet: "0xabc",
+            created_at: "2026-09-19T12:00:00.000Z",
+            tick_lower: 200,
+            tick_upper: 300,
+            current_value_usd: 33,
+            input_value: 33,
+          },
+          {
+            poolType: "uniswap",
+            chain: "robinhood",
+            tokenId: "12",
+            position: "12",
+            pair: "ASKR/USDG",
+            pool: "0xpool",
+            wallet: "0xabc",
+            created_at: "2026-09-19T12:00:00.000Z",
+            tick_lower: 300,
+            tick_upper: 400,
+            current_value_usd: 17,
+            input_value: 17,
+          },
+        ],
+      }),
+      close: async (body) => {
+        closed.push(body);
+        return { ok: true, tx: "0xlad" };
+      },
+    };
+
+    await handleTelegramCommand(
+      { cmd: "/close", args: ["12"], raw: "/close 12" },
+      { client, notifier, tracker: null, inflight: new Set(), liveClose: true }
+    );
+
+    assert.equal(closed.length, 1);
+    assert.deepEqual(closed[0].ladder_token_ids, ["10", "11", "12"]);
+    assert.equal(closed[0].strategy, "bid_ask");
+  });
+
   test("/open without args sends usage", async () => {
     const sent = [];
     const notifier = {
