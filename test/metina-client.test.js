@@ -78,11 +78,28 @@ describe("Metina client", () => {
       const out = await client.positions({ discover: true });
       assert.equal(out.positions[0].position, "9");
       assert.equal(calls.length, 3);
-      assert.match(calls[0].url, /\/api\/web\/positions\?discover=1$/);
+      assert.match(calls[0].url, /\/api\/web\/positions\?discover=1&hydrate=1$/);
       assert.match(calls[1].url, /\/api\/auth\/login$/);
       assert.match(calls[2].url, /\/api\/web\/positions/);
       assert.equal(calls[2].init.headers.Cookie, "metina_member_session=fresh.member1");
       assert.equal(calls[2].init.headers["x-metina-evm-address"], creds.address);
+    });
+  });
+
+  test("positions can request a lite indexer pass", async () => {
+    const client = createClient(creds);
+    await withFetch((_url, _init, n) => {
+      if (n === 1) {
+        return jsonRes({
+          body: { ok: true, authed: true },
+          cookies: ["metina_member_session=abc.member1"],
+        });
+      }
+      return jsonRes({ body: { ok: true, positions: [] } });
+    }, async (calls) => {
+      await client.login();
+      await client.positions({ discover: false, hydrate: false });
+      assert.match(calls[1].url, /\/api\/web\/positions\?discover=0&hydrate=0$/);
     });
   });
 

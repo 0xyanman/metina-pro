@@ -26,7 +26,7 @@ describe("worker cycle", () => {
         return { ok: true, success: true };
       },
     };
-    const out = await runCycle(client, { liveClose: false, discover: false }, new Set());
+    const out = await runCycle(client, { liveClose: false, discover: false, hydrate: false }, new Set());
     assert.equal(out.count, 1);
     assert.equal(out.hits, 1);
     assert.equal(closed, 0);
@@ -149,5 +149,17 @@ describe("worker cycle", () => {
     await runCycle(client, { liveClose: false, discover: false }, new Set(), opts);
     const dryMsgs = sent.filter((m) => m.includes("[DRY]"));
     assert.equal(dryMsgs.length, 1);
+  });
+
+  test("lite watch tick asks Metina for hydrate=0", async () => {
+    let seen = null;
+    const client = {
+      async positions(opts) {
+        seen = opts;
+        return { positions: [] };
+      },
+    };
+    await runCycle(client, { liveClose: false, discover: false, hydrate: false }, new Set());
+    assert.deepEqual(seen, { discover: false, hydrate: false });
   });
 });

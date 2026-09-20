@@ -13,6 +13,7 @@ const ENV_KEYS = [
   "RPC_ETHEREUM",
   "POLL_MS",
   "DISCOVER_EVERY",
+  "HYDRATE_EVERY",
   "LIVE_CLOSE",
   "LIVE_OPEN",
   "TELEGRAM_CMD_INTERVAL_MS",
@@ -96,7 +97,8 @@ describe("loadConfig", () => {
     assert.equal(cfg.telegramCmdIntervalMs, 2_000);
     assert.equal(cfg.telegramOpenCooldownMs, 45_000);
     assert.equal(cfg.telegramCloseCooldownMs, 10_000);
-    assert.equal(cfg.discoverEvery, 8);
+    assert.equal(cfg.discoverEvery, 27);
+    assert.equal(cfg.hydrateEvery, 4);
     assert.equal(cfg.telegram, null);
   });
 
@@ -116,6 +118,18 @@ describe("loadConfig", () => {
     assert.equal(cfg.liveClose, true);
     assert.equal(cfg.liveOpen, true);
     assert.equal(cfg.pollMs, 15_000);
+    assert.equal(cfg.discoverEvery, 80);
+    assert.equal(cfg.hydrateEvery, 12);
+  });
+
+  test("DISCOVER_EVERY and HYDRATE_EVERY env override the computed cadence", () => {
+    const cfg = withEnv({
+      ...valid,
+      DISCOVER_EVERY: "8",
+      HYDRATE_EVERY: "2",
+    }, () => loadConfig());
+    assert.equal(cfg.discoverEvery, 8);
+    assert.equal(cfg.hydrateEvery, 2);
   });
 
   test("parses Telegram config when token and chat_id are present", () => {

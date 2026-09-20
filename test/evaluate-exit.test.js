@@ -172,6 +172,26 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
       positionKey({ poolType: "uniswap", chain: "bsc", position: "99" }),
       "uniswap-bsc-99",
     );
+    assert.equal(
+      positionKey({
+        poolType: "uniswap",
+        chain: "robinhood",
+        position: "10",
+        ladder_id: "lad:x",
+        ladder_token_ids: ["10", "11", "12"],
+      }),
+      "uniswap-robinhood-lad:10,11,12",
+    );
+    assert.equal(
+      positionKey({
+        poolType: "uniswap",
+        chain: "robinhood",
+        position: "10",
+        ladder_id: "lad:inf:robinhood:10",
+        ladder_token_ids: ["12", "10", "11"],
+      }),
+      "uniswap-robinhood-lad:10,11,12",
+    );
   });
 
   test("closePayload maps the desk close body", () => {
