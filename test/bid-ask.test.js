@@ -347,6 +347,22 @@ describe("EVM Bid-Ask collapse", () => {
     assert.equal(evaluateExit(card).action, null);
   });
 
+  test("one indexed Bid-Ask rung vs full cost does not trip SL", () => {
+    const hit = evaluateExit({
+      poolType: "uniswap",
+      chain: "robinhood",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      stop_loss_pct: -50,
+      take_profit_pct: 10,
+      current_value_usd: 333,
+      entry_value_usd: 2000,
+      pnl: { current_value_usd: 333, entry_value_usd: 2000, pnl_pct: -83.35 },
+    });
+    assert.equal(hit.action, null);
+  });
+
   test("Arc cloned $100 stamps stay one $100 cost", () => {
     const out = collapseOpenLadders([
       rung("21", {
