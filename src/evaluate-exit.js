@@ -124,6 +124,11 @@ function firstPositive(...vals) {
   return null;
 }
 
+function quoteIsStable(position) {
+  const q = String(position?.quote_symbol || position?.pnl?.quote_symbol || "").toUpperCase();
+  return /^(USDG|USDT|USDC|USD|DAI)$/.test(q);
+}
+
 function lpSidesUsd(position) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
   const meme = num(pnl.amount_meme_usd ?? position?.amount_meme_usd);
@@ -162,9 +167,14 @@ function entryCostUsd(position, inventory) {
     position?.initial_value_usd,
     position?.entry_value_usd,
     position?.input_value,
-    pnl.entry_value_eth,
+    quoteIsStable(position) ? pnl.entry_value_eth : null,
+    quoteIsStable(position) ? position?.entry_value_eth : null,
   );
   if (entry != null) return entry;
+  // Do not invert onchain_pnl_pct when Pro already flagged it unreliable
+  // (AU/USDG: -7.74% on-chain vs -1.43% from pnl_usd / inventory).
+  const unreliable = position?.pnl_reliable === false || pnl.pnl_reliable === false;
+  if (unreliable) return null;
   const onchain = num(pnl.onchain_pnl_pct ?? position?.onchain_pnl_pct);
   if (inventory != null && inventory > 0 && onchain != null && Math.abs(onchain) <= 500 && onchain > -99.9) {
     const cost = inventory / (1 + onchain / 100);
@@ -189,7 +199,17 @@ export function livePnlUsd(position) {
   const cost = entryCostUsd(position, inventory);
 
   if (inventory != null && cost != null && cost > 0) {
-    return inventory + fees - cost;
+    const mark = inventory + fees - cost;
+    const withoutFees = inventory - cost;
+    // current_value often already includes unclaimed. Adding fees again
+    // doubles Live % when token sides are missing (all-quote cards).
+    if (
+      fees >= 0.01
+      && Math.abs(withoutFees - fees) <= Math.max(0.5, fees * 0.25)
+    ) {
+      return withoutFees;
+    }
+    return mark;
   }
   if ((printed == null || Math.abs(printed) < 0.005) && fees >= 0.01) {
     return (printed || 0) + fees;
@@ -239,6 +259,17 @@ export function livePnlPct(position) {
   if (liveUsd != null && cost != null && cost > 0) {
     const fromMark = (liveUsd / cost) * 100;
     if (Number.isFinite(fromMark) && !mixedUnitPct(fromMark, liveUsd)) return fromMark;
+  }
+
+  // Unreliable + no real deposit: % from pnl_usd vs inventory, not the
+  // on-chain mark that often got copied into pnl_pct (AU/USDG tautology).
+  const unreliable = position?.pnl_reliable === false || pnl.pnl_reliable === false;
+  if (unreliable && liveUsd != null && Math.abs(liveUsd) >= 0.01 && inventory != null) {
+    const inferred = inventory - liveUsd;
+    if (inferred > 0) {
+      const fromInv = (liveUsd / inferred) * 100;
+      if (Number.isFinite(fromInv) && !mixedUnitPct(fromInv, liveUsd)) return fromInv;
+    }
   }
 
   if (display != null && Math.abs(display) >= 0.005 && !mixedUnitPct(display, liveUsd)) return display;

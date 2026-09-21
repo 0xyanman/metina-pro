@@ -30,6 +30,33 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     assert.equal(below.action, null);
   });
 
+  test("unreliable on-chain % does not seed cost when deposit is missing", () => {
+    const au = {
+      poolType: "uniswap",
+      pair: "AU/USDG",
+      pnl_reliable: false,
+      stop_loss_pct: -5,
+      take_profit_pct: 10,
+      pnl: {
+        pnl_reliable: false,
+        pnl_usd: -1.43,
+        pnl_pct: -7.74,
+        onchain_pnl_pct: -7.74,
+        current_value_usd: 100,
+      },
+    };
+    const pct = livePnlPct(au);
+    assert.ok(pct != null && Math.abs(pct - (-1.43)) < 0.25, pct);
+    assert.equal(evaluateExit(au).action, null);
+    const seeded = {
+      ...au,
+      pnl_reliable: true,
+      pnl: { ...au.pnl, pnl_reliable: true },
+    };
+    assert.ok(livePnlPct(seeded) < -7, livePnlPct(seeded));
+    assert.equal(evaluateExit(seeded).kind, "stop_loss");
+  });
+
   test("uses Live PNL %, not on-chain inventory mark", () => {
     const liveHit = evaluateExit({
       poolType: "uniswap",
@@ -113,6 +140,48 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
       take_profit_pct: "",
     });
     assert.equal(empty.action, null);
+  });
+
+  test("WETH entry_value_eth is not treated as a dollar cost", () => {
+    const hit = evaluateExit({
+      poolType: "uniswap",
+      pair: "PIPEDOG/WETH",
+      quote_symbol: "WETH",
+      take_profit_pct: 3,
+      stop_loss_pct: -15,
+      pnl: {
+        quote_symbol: "WETH",
+        entry_value_eth: 0.8,
+        current_value_usd: 2454.88,
+        pnl_usd: -0.004,
+        pnl_pct: 245388,
+        onchain_pnl_pct: 245388,
+      },
+    });
+    assert.equal(hit.action, null);
+    assert.equal(livePnlPct({
+      poolType: "uniswap",
+      quote_symbol: "WETH",
+      pnl: { quote_symbol: "WETH", entry_value_eth: 0.8, current_value_usd: 2454.88, pnl_usd: -0.004 },
+    }), null);
+  });
+
+  test("unclaimed already inside current is not added again", () => {
+    const p = {
+      poolType: "uniswap",
+      take_profit_pct: 8,
+      stop_loss_pct: -20,
+      pnl: {
+        entry_value_usd: 100,
+        current_value_usd: 105,
+        unclaimed_fee_usd: 5,
+        pnl_usd: 5,
+        pnl_pct: 5,
+      },
+    };
+    assert.ok(Math.abs(livePnlUsd(p) - 5) < 0.05, livePnlUsd(p));
+    assert.ok(Math.abs(livePnlPct(p) - 5) < 0.3, livePnlPct(p));
+    assert.equal(evaluateExit(p).action, null);
   });
 
   test("native-quote unit-mix % does not trip TP", () => {
