@@ -274,4 +274,117 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     });
     assert.ok(pct != null && pct > -50, pct);
   });
+
+  test("fresh Bid-Ask quote-only unclaimed spike does not trip TP 4%", () => {
+    const hit = evaluateExit({
+      poolType: "uniswap",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      quote_symbol: "USDG",
+      created_at: new Date().toISOString(),
+      current_value_usd: 3000,
+      entry_value_usd: 3000,
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      pnl: {
+        quote_symbol: "USDG",
+        current_value_usd: 3000,
+        entry_value_usd: 3000,
+        pnl_usd: 0,
+        pnl_pct: 0,
+        pnl_reliable: false,
+        unclaimed_fee_usd: 137.48,
+      },
+    });
+    assert.equal(hit.action, null);
+  });
+
+  test("Bid-Ask real +10% hits TP and real -50% hits SL", () => {
+    assert.equal(evaluateExit({
+      poolType: "uniswap",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      created_at: "2026-09-19T12:00:00.000Z",
+      current_value_usd: 3300,
+      entry_value_usd: 3000,
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      pnl: { current_value_usd: 3300, entry_value_usd: 3000, pnl_usd: 300, pnl_pct: 10, pnl_reliable: false },
+    }).kind, "take_profit");
+    assert.equal(evaluateExit({
+      poolType: "uniswap",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      created_at: "2026-09-19T12:00:00.000Z",
+      current_value_usd: 1500,
+      entry_value_usd: 3000,
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      pnl: {
+        current_value_usd: 1500,
+        entry_value_usd: 3000,
+        pnl_usd: -1500,
+        pnl_pct: -50,
+        pnl_reliable: false,
+        amount_eth_usd: 900,
+        amount_meme_usd: 600,
+      },
+    }).kind, "stop_loss");
+  });
+
+  test("Bid-Ask fake on-chain -80% with flat live does not hit SL", () => {
+    const hit = evaluateExit({
+      poolType: "uniswap",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      created_at: "2026-09-19T12:00:00.000Z",
+      current_value_usd: 2993,
+      entry_value_usd: 3000,
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      pnl: {
+        current_value_usd: 2993,
+        entry_value_usd: 3000,
+        pnl_usd: 0,
+        pnl_pct: -80,
+        onchain_pnl_pct: -80,
+        amount_eth_usd: 2970,
+        amount_meme_usd: 23,
+      },
+    });
+    assert.equal(hit.action, null);
+  });
+
+  test("fresh Bid-Ask claimed 5/6 deposit does not trip TP 10%", () => {
+    const hit = evaluateExit({
+      poolType: "uniswap",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["3016295", "3016296", "3016297"],
+      quote_symbol: "USDG",
+      age_minutes: 3,
+      current_value_usd: 999.999997,
+      entry_value_usd: 1000,
+      take_profit_pct: 10,
+      stop_loss_pct: -57,
+      pnl: {
+        quote_symbol: "USDG",
+        current_value_usd: 999.999997,
+        entry_value_usd: 1000,
+        pnl_usd: -0.000003,
+        pnl_pct: 0,
+        pnl_reliable: false,
+        unclaimed_fee_usd: 0,
+        fees_claimed_usd: 833.35,
+        fees_claimed_usdg: 833.35,
+        amount_eth_usd: 999.999997,
+        amount_meme_usd: 0,
+      },
+    });
+    assert.equal(hit.action, null);
+  });
 });
