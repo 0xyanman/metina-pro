@@ -469,6 +469,10 @@ function mergeLadderGroup(members, gid) {
     primary.amount_quote_usd = quoteUsd;
   }
   if (memeUsd != null) primary.amount_meme_usd = memeUsd;
+  const memeAmt = sumPicked(sorted, (m) => firstPositive(m.amount_meme, m.pnl?.amount_meme));
+  if (memeAmt != null) {
+    primary.amount_meme = memeAmt;
+  }
   if (basis != null) {
     primary.initial_value_usd = basis;
     primary.entry_value_usd = basis;
@@ -491,6 +495,10 @@ function mergeLadderGroup(members, gid) {
     m.unclaimed_fees_quote,
     m.pnl?.unclaimed_fees_quote,
   ));
+  const unclaimedMeme = sumPicked(sorted, (m) => firstPositive(
+    m.unclaimed_fees_meme,
+    m.pnl?.unclaimed_fees_meme,
+  ));
   const unclaimed = unclaimedUsd ?? unclaimedQuote;
   const claimed = sumPicked(sorted, (m) => firstPositive(
     m.fees_claimed_usd,
@@ -503,6 +511,7 @@ function mergeLadderGroup(members, gid) {
   if (basis != null) pnlObj.entry_value_usd = basis;
   if (quoteUsd != null) pnlObj.amount_eth_usd = quoteUsd;
   if (memeUsd != null) pnlObj.amount_meme_usd = memeUsd;
+  if (memeAmt != null) pnlObj.amount_meme = memeAmt;
   if (unclaimed != null) {
     primary.unclaimed_fee_usd = unclaimed;
     pnlObj.unclaimed_fee_usd = unclaimed;
@@ -510,6 +519,19 @@ function mergeLadderGroup(members, gid) {
   if (unclaimedQuote != null) {
     primary.unclaimed_fees_quote = unclaimedQuote;
     pnlObj.unclaimed_fees_quote = unclaimedQuote;
+  }
+  if (unclaimedMeme != null) {
+    primary.unclaimed_fees_meme = unclaimedMeme;
+    pnlObj.unclaimed_fees_meme = unclaimedMeme;
+  }
+  const spot = firstPositive(
+    primary.current_price,
+    primary.pnl?.current_price,
+    ...sorted.map((m) => m.current_price ?? m.pnl?.current_price),
+  );
+  if (spot != null) {
+    primary.current_price = spot;
+    pnlObj.current_price = spot;
   }
   if (claimed != null) {
     primary.fees_claimed_usd = claimed;

@@ -1,4 +1,4 @@
-import { positionKey, livePnlPct, livePnlUsd } from "./evaluate-exit.js";
+import { positionKey, livePnlPct, livePnlUsd, liveUnclaimedFeeUsd, liveClaimedFeeUsd } from "./evaluate-exit.js";
 import { escapeHtml } from "./telegram.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -110,10 +110,9 @@ export function formatPnlBlock(position, labelPrefix = "") {
   const liveUsd = livePnlUsd(position) ?? num(pnl.pnl_usd ?? position.pnl_usd);
   const onchainPct = num(pnl.onchain_pnl_pct ?? position.onchain_pnl_pct);
   const valueUsd = num(pnl.current_value_usd ?? position.total_value_usd ?? position.current_value_usd);
-  const unclaimedUsd = [pnl.unclaimed_fee_usd, position.unclaimed_fees_usd, pnl.unclaimed_fees_quote, position.unclaimed_fees_quote]
+  const unclaimedUsd = [liveUnclaimedFeeUsd(position), pnl.unclaimed_fee_usd, position.unclaimed_fees_usd, pnl.unclaimed_fees_quote, position.unclaimed_fees_quote]
     .map(num).find((n) => n != null && n > 0) ?? num(pnl.unclaimed_fee_usd ?? position.unclaimed_fees_usd);
-  const claimedUsd = [pnl.fees_claimed_usd, pnl.fees_claimed_usdg, position.fees_claimed_usd, pnl.collected_fees_usd, position.collected_fees_usd]
-    .map(num).find((n) => n != null && n > 0) ?? num(pnl.fees_claimed_usd ?? position.fees_claimed_usd);
+  const claimedUsd = liveClaimedFeeUsd(position);
 
   const lines = [];
   const header = labelPrefix ? `PNL (${labelPrefix}):` : "PNL:";
@@ -131,7 +130,7 @@ export function formatPnlBlock(position, labelPrefix = "") {
   if (unclaimedUsd != null) {
     lines.push(`  Unclaimed fees: ${formatUsd(unclaimedUsd)}`);
   }
-  if (claimedUsd != null) {
+  if (claimedUsd >= 0.01) {
     lines.push(`  Collected fees: ${formatUsd(claimedUsd)}`);
   }
 

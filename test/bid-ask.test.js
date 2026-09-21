@@ -579,4 +579,325 @@ describe("EVM Bid-Ask PnL and fees", () => {
     assert.ok(pct > 5 && pct < 15, pct);
     assert.equal(evaluateExit(card).action, null);
   });
+
+  test("fresh Bid-Ask fake unclaimed USD spike does not trip TP", () => {
+    const now = new Date().toISOString();
+    const card = collapseOpenLadders([
+      rung("3013141", {
+        tick_lower: 100, tick_upper: 200, current_value_usd: 1496.5, input_value: 1500,
+        created_at: now, take_profit_pct: 4, stop_loss_pct: -20, current_price: 0.00352,
+        pnl: {
+          quote_symbol: "USDG", current_value_usd: 1496.5, pnl_usd: 0, pnl_pct: 0,
+          unclaimed_fee_usd: 68.74, unclaimed_fees_quote: 0.72, unclaimed_fees_meme: 281.84,
+          amount_meme: 2885, amount_meme_usd: 10.15, amount_eth_usd: 1486,
+        },
+      }),
+      rung("3013142", {
+        tick_lower: 200, tick_upper: 300, current_value_usd: 997.5, input_value: 1000,
+        created_at: now, current_price: 0.00352,
+        pnl: {
+          quote_symbol: "USDG", current_value_usd: 997.5, pnl_usd: 0, pnl_pct: 0,
+          unclaimed_fee_usd: 45.83, unclaimed_fees_quote: 0.48, unclaimed_fees_meme: 187.89,
+          amount_meme: 1923, amount_meme_usd: 6.77, amount_eth_usd: 991,
+        },
+      }),
+      rung("3013143", {
+        tick_lower: 300, tick_upper: 400, current_value_usd: 499, input_value: 500,
+        created_at: now, current_price: 0.00352,
+        pnl: {
+          quote_symbol: "USDG", current_value_usd: 499, pnl_usd: 0, pnl_pct: 0,
+          unclaimed_fee_usd: 22.91, unclaimed_fees_quote: 0.25, unclaimed_fees_meme: 93.95,
+          amount_meme: 962, amount_meme_usd: 3.39, amount_eth_usd: 496,
+        },
+      }),
+    ])[0];
+    card.take_profit_pct = 4;
+    card.stop_loss_pct = -20;
+    const usd = livePnlUsd(card);
+    const pct = livePnlPct(card);
+    assert.ok(usd < 10, usd);
+    assert.ok(pct < 4, pct);
+    assert.equal(evaluateExit(card).action, null);
+
+    const quoteOnly = {
+      poolType: "uniswap",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      quote_symbol: "USDG",
+      created_at: now,
+      current_value_usd: 3000,
+      entry_value_usd: 3000,
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      pnl: {
+        quote_symbol: "USDG",
+        current_value_usd: 3000,
+        entry_value_usd: 3000,
+        pnl_usd: 0,
+        pnl_pct: 0,
+        unclaimed_fee_usd: 137.48,
+      },
+    };
+    assert.ok(livePnlPct(quoteOnly) >= 4, livePnlPct(quoteOnly));
+    assert.equal(evaluateExit(quoteOnly).action, null);
+  });
+});
+
+function bidAskWatch(over = {}) {
+  const current = over.current_value_usd ?? 3000;
+  const entry = over.entry_value_usd ?? 3000;
+  const { pnl: pnlOver, ...rest } = over;
+  return {
+    poolType: "uniswap",
+    chain: "robinhood",
+    strategy: "bid_ask",
+    ladder_rungs: 3,
+    ladder_token_ids: ["3013141", "3013142", "3013143"],
+    quote_symbol: "USDG",
+    created_at: "2026-09-19T12:00:00.000Z",
+    current_value_usd: current,
+    entry_value_usd: entry,
+    stop_loss_pct: -20,
+    take_profit_pct: 4,
+    ...rest,
+    pnl: {
+      quote_symbol: "USDG",
+      strategy: "bid_ask",
+      current_value_usd: current,
+      entry_value_usd: entry,
+      pnl_reliable: false,
+      ...pnlOver,
+    },
+  };
+}
+
+describe("Bid-Ask real vs fake TP/SL", () => {
+  test("real inventory +10% hits TP 4%", () => {
+    const card = bidAskWatch({
+      current_value_usd: 3300,
+      pnl: { pnl_usd: 300, pnl_pct: 10, pnl_reliable: false },
+    });
+    assert.ok(livePnlPct(card) >= 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).kind, "take_profit");
+  });
+
+  test("real inventory -50% hits SL -20%", () => {
+    const card = bidAskWatch({
+      current_value_usd: 1500,
+      pnl: {
+        pnl_usd: -1500,
+        pnl_pct: -50,
+        amount_eth_usd: 900,
+        amount_meme_usd: 600,
+      },
+    });
+    assert.ok(livePnlPct(card) <= -20, livePnlPct(card));
+    assert.equal(evaluateExit(card).kind, "stop_loss");
+  });
+
+  test("real aged unclaimed quote fees hit TP even when printed is 0%", () => {
+    const card = bidAskWatch({
+      pnl: {
+        pnl_usd: 0,
+        pnl_pct: 0,
+        unclaimed_fee_usd: 150,
+        unclaimed_fees_quote: 150,
+      },
+    });
+    assert.ok(livePnlPct(card) >= 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).kind, "take_profit");
+  });
+
+  test("real live below TP and SL does not close", () => {
+    const card = bidAskWatch({
+      current_value_usd: 3090,
+      pnl: { pnl_usd: 90, pnl_pct: 3, unclaimed_fee_usd: 0 },
+    });
+    assert.ok(livePnlPct(card) > 0 && livePnlPct(card) < 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+
+    const mildLoss = bidAskWatch({
+      current_value_usd: 2700,
+      pnl: { pnl_usd: -300, pnl_pct: -10, amount_eth_usd: 1600, amount_meme_usd: 1100 },
+    });
+    assert.ok(livePnlPct(mildLoss) > -20, livePnlPct(mildLoss));
+    assert.equal(evaluateExit(mildLoss).action, null);
+  });
+
+  test("Pro unreliable flag still honors real Bid-Ask TP and SL", () => {
+    assert.equal(evaluateExit(bidAskWatch({
+      current_value_usd: 3180,
+      pnl: { pnl_usd: 180, pnl_pct: 6, pnl_reliable: false },
+    })).kind, "take_profit");
+    assert.equal(evaluateExit(bidAskWatch({
+      current_value_usd: 2100,
+      pnl: {
+        pnl_usd: -900,
+        pnl_pct: -30,
+        pnl_reliable: false,
+        amount_eth_usd: 1200,
+        amount_meme_usd: 900,
+      },
+    })).kind, "stop_loss");
+  });
+
+  test("Telegram fake Live 0% +$137.48 does not hit TP 4%", () => {
+    const shot = bidAskWatch({
+      created_at: new Date().toISOString(),
+      current_value_usd: 3000,
+      pnl: {
+        pnl_usd: 0,
+        pnl_pct: -0.00,
+        pnl_reliable: false,
+        unclaimed_fee_usd: 137.48,
+        unclaimed_fees_quote: 1.45,
+        unclaimed_fees_meme: 563.68,
+        amount_meme: 5770,
+        amount_meme_usd: 20.31,
+        amount_eth_usd: 2973,
+      },
+      current_price: 0.00352,
+    });
+    assert.ok(livePnlPct(shot) < 4, livePnlPct(shot));
+    assert.equal(evaluateExit(shot).action, null);
+  });
+
+  test("wrong meme unit price that reprints $137 still does not TP while fresh", () => {
+    const card = bidAskWatch({
+      created_at: new Date().toISOString(),
+      current_price: 0.24,
+      pnl: {
+        pnl_usd: 0,
+        pnl_pct: 0,
+        unclaimed_fee_usd: 137.48,
+        unclaimed_fees_quote: 1.45,
+        unclaimed_fees_meme: 563.68,
+      },
+    });
+    assert.ok(livePnlPct(card) >= 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("implied inventory price beats a wrong spot so aged $137 spike is not TP", () => {
+    const card = bidAskWatch({
+      current_price: 0.24,
+      pnl: {
+        pnl_usd: 0,
+        pnl_pct: 0,
+        unclaimed_fee_usd: 137.48,
+        unclaimed_fees_quote: 1.45,
+        unclaimed_fees_meme: 563.68,
+        amount_meme: 5770,
+        amount_meme_usd: 20.31,
+        amount_eth_usd: 2973,
+      },
+    });
+    assert.ok(livePnlPct(card) < 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("fake on-chain -80% with flat live inventory does not hit SL", () => {
+    const card = bidAskWatch({
+      current_value_usd: 2993,
+      pnl: {
+        pnl_usd: 0,
+        pnl_pct: -80,
+        onchain_pnl_pct: -80,
+        amount_eth_usd: 2970,
+        amount_meme_usd: 23,
+      },
+    });
+    assert.ok(livePnlPct(card) > -20, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("fake $0 mark and one-rung indexer print do not hit SL", () => {
+    assert.equal(evaluateExit(bidAskWatch({
+      current_value_usd: 0,
+      total_value_usd: 0,
+      pnl: { current_value_usd: 0, pnl_usd: 0, pnl_pct: -100 },
+    })).action, null);
+    assert.equal(evaluateExit(bidAskWatch({
+      current_value_usd: 500,
+      pnl: { current_value_usd: 500, pnl_usd: -2500, pnl_pct: -83 },
+    })).action, null);
+  });
+
+  test("empty Bid-Ask SL/TP never uses hidden -50/+10", () => {
+    const card = bidAskWatch({
+      current_value_usd: 1500,
+      stop_loss_pct: "",
+      take_profit_pct: "",
+      pnl: { pnl_usd: -1500, pnl_pct: -50 },
+    });
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("fresh Bid-Ask claimed 5/6 deposit does not trip TP", () => {
+    const card = bidAskWatch({
+      current_value_usd: 999.999997,
+      entry_value_usd: 1000,
+      age_minutes: 3,
+      take_profit_pct: 10,
+      stop_loss_pct: -57,
+      pnl: {
+        pnl_usd: -0.000003,
+        pnl_pct: 0,
+        pnl_reliable: false,
+        unclaimed_fee_usd: 0,
+        unclaimed_fees_quote: 0,
+        unclaimed_fees_meme: 0,
+        fees_claimed_usd: 833.3522029083796,
+        fees_claimed_usdg: 833.3522029083796,
+        amount_eth_usd: 999.999997,
+        amount_meme_usd: 0,
+      },
+    });
+    assert.ok(Math.abs(livePnlUsd(card)) < 1, livePnlUsd(card));
+    assert.ok(livePnlPct(card) < 10, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("aged Bid-Ask claimed 5/6 with small unclaimed and −0.26% print does not TP", () => {
+    const card = bidAskWatch({
+      current_value_usd: 2987.64,
+      entry_value_usd: 3000,
+      age_minutes: 165,
+      take_profit_pct: 10,
+      stop_loss_pct: -57,
+      pnl: {
+        pnl_usd: -7.71,
+        pnl_pct: -0.257,
+        pnl_reliable: false,
+        unclaimed_fee_usd: 4.69,
+        unclaimed_fees_quote: 2.02,
+        unclaimed_fees_meme: 797,
+        fees_claimed_usd: 2499.26,
+        fees_claimed_usdg: 2499.26,
+        amount_eth_usd: 2913,
+        amount_meme_usd: 81,
+      },
+    });
+    assert.ok(livePnlPct(card) < 10, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("real Bid-Ask collected fees still hit TP", () => {
+    const card = bidAskWatch({
+      current_value_usd: 100,
+      entry_value_usd: 100,
+      take_profit_pct: 10,
+      pnl: {
+        pnl_usd: 0,
+        pnl_pct: 0,
+        unclaimed_fee_usd: 0,
+        fees_claimed_usd: 15,
+        amount_eth_usd: 60,
+        amount_meme_usd: 40,
+      },
+    });
+    assert.ok(livePnlPct(card) >= 10, livePnlPct(card));
+    assert.equal(evaluateExit(card).kind, "take_profit");
+  });
 });

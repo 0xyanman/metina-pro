@@ -31,22 +31,89 @@ export function openFeesUsd(unclaimed, claimed) {
 /** Skip Auto TP for a few minutes after Claim only — indexer lag. */
 export const CLAIM_TP_COOLDOWN_MS = 180_000;
 
+function quoteLooksLikeUnclaimedUsd(usd, quoteAmt) {
+  const idx = Number(usd);
+  const q = Number(quoteAmt);
+  if (!(idx >= 0.01) || !Number.isFinite(q) || q < 0) return false;
+  return Math.abs(idx - q) <= Math.max(0.25, Math.abs(q) * 0.12);
+}
+
+function impliedMemePrice(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const amt = num(pnl.amount_meme ?? position?.amount_meme);
+  const usd = num(pnl.amount_meme_usd ?? position?.amount_meme_usd);
+  if (amt != null && amt > 0 && usd != null && usd > 0) {
+    const px = usd / amt;
+    if (Number.isFinite(px) && px > 0) return px;
+  }
+  return firstPositive(
+    position?.current_price,
+    pnl.current_price,
+    position?.price_now,
+    position?.spot_price,
+  );
+}
+
+/**
+ * Indexer often stores quote tokens as unclaimed USD, or a fake USD spike
+ * (meme amount × wrong unit) while the real legs are still on the card.
+ */
+function unclaimedUsdFromFeeLegs(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const q = num(pnl.unclaimed_fees_quote ?? position?.unclaimed_fees_quote);
+  const m = num(pnl.unclaimed_fees_meme ?? position?.unclaimed_fees_meme);
+  const quote = String(pnl.quote_symbol || position?.quote_symbol || "").toUpperCase();
+  const stable = /^(USDG|USDT|USDC|USD|DAI)$/.test(quote);
+  const px = impliedMemePrice(position);
+  let fromTokens = 0;
+  if (stable && q != null && q > 0) fromTokens += q;
+  if (m != null && m > 0 && px != null && px > 0) fromTokens += m * px;
+  const stored = firstPositive(pnl.unclaimed_fee_usd, position?.unclaimed_fees_usd) || 0;
+  if (stored > 0.005) {
+    if (
+      fromTokens > stored + 0.05
+      && m != null
+      && m > 0
+      && quoteLooksLikeUnclaimedUsd(stored, stable ? q : stored)
+    ) {
+      return fromTokens;
+    }
+    if (fromTokens >= 0.01 && m != null && m > 0 && px != null && px > 0
+      && stored > fromTokens * 1.5 && stored - fromTokens > 1) {
+      return fromTokens;
+    }
+    return stored;
+  }
+  return fromTokens > 0.005 ? fromTokens : 0;
+}
+
 function feeBuckets(position) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
-  const unclaimed = firstPositive(
+  const legs = unclaimedUsdFromFeeLegs(position);
+  const stored = firstPositive(
     pnl.unclaimed_fee_usd,
     position?.unclaimed_fees_usd,
     pnl.unclaimed_fees_quote,
     position?.unclaimed_fees_quote,
   ) || 0;
-  const claimed = firstPositive(
+  const unclaimed = legs >= 0.01 ? legs : stored;
+  let claimed = firstPositive(
     pnl.fees_claimed_usd,
     pnl.fees_claimed_usdg,
     position?.fees_claimed_usd,
     pnl.collected_fees_usd,
     position?.collected_fees_usd,
   ) || 0;
+  if (bidAskClaimedLooksLikeLeftoverPrincipal(position, claimed, unclaimed)) claimed = 0;
   return { pnl, unclaimed, claimed, fees: openFeesUsd(unclaimed, claimed) };
+}
+
+export function liveUnclaimedFeeUsd(position) {
+  return feeBuckets(position).unclaimed;
+}
+
+export function liveClaimedFeeUsd(position) {
+  return feeBuckets(position).claimed;
 }
 
 function firstPositive(...vals) {
@@ -77,12 +144,7 @@ function lpInventoryUsd(position) {
   // $0 Bid-Ask / LPAgent marks still have token sides — do not treat as −100% SL.
   const current = firstPositive(pnl.current_value_usd, position?.total_value_usd, position?.current_value_usd);
   const sides = lpSidesUsd(position);
-  const unclaimed = firstPositive(
-    pnl.unclaimed_fee_usd,
-    position?.unclaimed_fees_usd,
-    pnl.unclaimed_fees_quote,
-    position?.unclaimed_fees_quote,
-  ) || 0;
+  const unclaimed = feeBuckets(position).unclaimed;
   // Prefer token sides when current already folded in unclaimed (would double-count).
   if (sides != null && current != null && unclaimed >= 0.01
     && current > sides + Math.max(1, unclaimed * 0.5)
@@ -196,6 +258,71 @@ function isBidAskPosition(p) {
   return Array.isArray(ids) && ids.length > 1;
 }
 
+function positionAgeMs(position) {
+  const t = Date.parse(
+    position?.openedAt || position?.opened_at || position?.created_at || position?.createdAt,
+  );
+  const ageMs = Number.isFinite(t) ? Date.now() - t : null;
+  const mins = Number(position?.age_minutes);
+  const ageFromMins = Number.isFinite(mins) && mins >= 0 ? mins * 60_000 : null;
+  return ageMs ?? ageFromMins;
+}
+
+/**
+ * Fresh Bid-Ask overlay often stamps the other 3:2:1 rungs as collected fees
+ * (5/6 of the deposit) while printed PnL is still ~0. That is not harvested fees.
+ */
+function bidAskClaimedLooksLikeLeftoverPrincipal(position, claimed, unclaimed) {
+  if (!isBidAskPosition(position)) return false;
+  if (!(claimed >= 1)) return false;
+  // Real claim-lag: collected ≈ leftover unclaimed of the same harvest.
+  if (unclaimed >= 0.01 && claimed <= unclaimed + Math.max(1, unclaimed * 0.25)) return false;
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const printed = num(pnl.pnl_usd ?? position?.pnl_usd);
+  const printedAbs = printed == null ? 0 : Math.abs(printed);
+  // Harvested fees show up in printed PnL. Leftover-rung stamps do not.
+  if (printedAbs >= Math.max(1, claimed * 0.2)) return false;
+  const cost = firstPositive(
+    pnl.entry_value_usd,
+    position?.initial_value_usd,
+    position?.entry_value_usd,
+    position?.input_value,
+  );
+  if (!(cost >= 1)) return false;
+  const share = claimed / cost;
+  if (share >= 0.4) return true;
+  for (const frac of [1 / 2, 2 / 3, 5 / 6]) {
+    if (Math.abs(share - frac) <= 0.03) return true;
+  }
+  return false;
+}
+
+/**
+ * Fresh Bid-Ask cards often print pnl_usd=0 while unclaimed_fee_usd is a fake
+ * spike (meme tokens as dollars). Do not Auto-TP from that until the NFT ages.
+ * Hours-old real unclaimed still counts as Live PnL.
+ */
+export function skipTakeProfitOnFreshFeeSpike(position) {
+  if (!isBidAskPosition(position)) return false;
+  const { pnl, unclaimed, claimed } = feeBuckets(position);
+  if (!(unclaimed >= 0.01) || claimed >= 0.01) return false;
+  const inventory = lpInventoryUsd(position);
+  const cost = entryCostUsd(position, inventory);
+  if (!(cost >= 1)) return false;
+  const live = livePnlUsd(position);
+  if (live == null || Math.abs(live - unclaimed) > Math.max(1, unclaimed * 0.25)) return false;
+  const printed = num(pnl.pnl_usd ?? position?.pnl_usd);
+  const printedPct = num(pnl.pnl_pct ?? position?.pnl_pct);
+  const printedFlat = (printed == null || Math.abs(printed) < 0.05)
+    && (printedPct == null || Math.abs(printedPct) < 0.05);
+  if (!printedFlat) return false;
+  const age = positionAgeMs(position);
+  const fresh = age != null && age >= 0 && age < 15 * 60_000;
+  if (fresh && unclaimed > cost * 0.015) return true;
+  if (age == null && unclaimed > cost * 0.025) return true;
+  return false;
+}
+
 function bidAskRungCount(p) {
   const n = Number(p?.ladder_rungs);
   if (Number.isFinite(n) && n > 1) return n;
@@ -252,7 +379,7 @@ export function evaluateExit(position) {
     };
   }
   if (Number.isFinite(tp) && pnlPct >= tp) {
-    if (skipTakeProfitAfterClaim(position)) {
+    if (skipTakeProfitAfterClaim(position) || skipTakeProfitOnFreshFeeSpike(position)) {
       return { action: null, reason: null, kind: null };
     }
     return {
