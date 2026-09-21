@@ -309,10 +309,6 @@ function bidAskClaimedLooksLikeLeftoverPrincipal(position, claimed, unclaimed) {
   // Real claim-lag: collected ≈ leftover unclaimed of the same harvest.
   if (unclaimed >= 0.01 && claimed <= unclaimed + Math.max(1, unclaimed * 0.25)) return false;
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
-  const printed = num(pnl.pnl_usd ?? position?.pnl_usd);
-  const printedAbs = printed == null ? 0 : Math.abs(printed);
-  // Harvested fees show up in printed PnL. Leftover-rung stamps do not.
-  if (printedAbs >= Math.max(1, claimed * 0.2)) return false;
   const cost = firstPositive(
     pnl.entry_value_usd,
     position?.initial_value_usd,
@@ -321,7 +317,12 @@ function bidAskClaimedLooksLikeLeftoverPrincipal(position, claimed, unclaimed) {
   );
   if (!(cost >= 1)) return false;
   const share = claimed / cost;
+  // 3:2:1 leftover rungs are ≥40% of deposit. Overlay may copy that
+  // stamp into pnl_usd — still not harvested fees.
   if (share >= 0.4) return true;
+  const printed = num(pnl.pnl_usd ?? position?.pnl_usd);
+  const printedAbs = printed == null ? 0 : Math.abs(printed);
+  if (printedAbs >= Math.max(1, claimed * 0.2)) return false;
   for (const frac of [1 / 2, 2 / 3, 5 / 6]) {
     if (Math.abs(share - frac) <= 0.03) return true;
   }
@@ -335,18 +336,21 @@ function bidAskClaimedLooksLikeLeftoverPrincipal(position, claimed, unclaimed) {
  */
 export function skipTakeProfitOnFreshFeeSpike(position) {
   if (!isBidAskPosition(position)) return false;
-  const { pnl, unclaimed, claimed } = feeBuckets(position);
+  const { unclaimed, claimed } = feeBuckets(position);
   if (!(unclaimed >= 0.01) || claimed >= 0.01) return false;
   const inventory = lpInventoryUsd(position);
   const cost = entryCostUsd(position, inventory);
   if (!(cost >= 1)) return false;
   const live = livePnlUsd(position);
   if (live == null || Math.abs(live - unclaimed) > Math.max(1, unclaimed * 0.25)) return false;
-  const printed = num(pnl.pnl_usd ?? position?.pnl_usd);
-  const printedPct = num(pnl.pnl_pct ?? position?.pnl_pct);
-  const printedFlat = (printed == null || Math.abs(printed) < 0.05)
-    && (printedPct == null || Math.abs(printedPct) < 0.05);
-  if (!printedFlat) return false;
+  // Inventory still ≈ deposit: the “profit” is only the fee print.
+  // Overlay may fold the spike into current_value, so also treat
+  // (inventory − unclaimed) ≈ cost as flat.
+  const maxDrift = Math.max(1, cost * 0.015);
+  const inventoryFlat = inventory != null && Math.abs(inventory - cost) <= maxDrift;
+  const inventoryFlatExFee = inventory != null
+    && Math.abs((inventory - unclaimed) - cost) <= maxDrift;
+  if (!inventoryFlat && !inventoryFlatExFee) return false;
   const age = positionAgeMs(position);
   const fresh = age != null && age >= 0 && age < 15 * 60_000;
   if (fresh && unclaimed > cost * 0.015) return true;

@@ -763,6 +763,37 @@ describe("Bid-Ask real vs fake TP/SL", () => {
     assert.equal(evaluateExit(shot).action, null);
   });
 
+  test("fresh Bid-Ask spike still skipped when overlay copies it into pnl_usd", () => {
+    const card = bidAskWatch({
+      created_at: new Date().toISOString(),
+      current_value_usd: 3000,
+      pnl: {
+        pnl_usd: 137.48,
+        pnl_pct: 0,
+        pnl_reliable: false,
+        unclaimed_fee_usd: 137.48,
+      },
+    });
+    assert.ok(livePnlPct(card) >= 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("fresh Bid-Ask spike still skipped when overlay copies on-chain −80%", () => {
+    const card = bidAskWatch({
+      created_at: new Date().toISOString(),
+      current_value_usd: 3000,
+      pnl: {
+        pnl_usd: 0,
+        pnl_pct: -80,
+        onchain_pnl_pct: -80,
+        pnl_reliable: false,
+        unclaimed_fee_usd: 137.48,
+      },
+    });
+    assert.ok(livePnlPct(card) >= 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
   test("wrong meme unit price that reprints $137 still does not TP while fresh", () => {
     const card = bidAskWatch({
       created_at: new Date().toISOString(),
@@ -877,6 +908,36 @@ describe("Bid-Ask real vs fake TP/SL", () => {
         fees_claimed_usdg: 2499.26,
         amount_eth_usd: 2913,
         amount_meme_usd: 81,
+      },
+    });
+    assert.ok(livePnlPct(card) < 10, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("fresh Bid-Ask spike folded into current_value does not trip TP", () => {
+    const card = bidAskWatch({
+      created_at: new Date().toISOString(),
+      current_value_usd: 3137.48,
+      pnl: {
+        current_value_usd: 3137.48,
+        pnl_usd: 137.48,
+        pnl_pct: 4.58,
+        unclaimed_fee_usd: 137.48,
+      },
+    });
+    assert.ok(livePnlPct(card) >= 4, livePnlPct(card));
+    assert.equal(evaluateExit(card).action, null);
+  });
+
+  test("leftover claimed 5/6 still ignored when overlay copies it into pnl_usd", () => {
+    const card = bidAskWatch({
+      current_value_usd: 3000,
+      take_profit_pct: 10,
+      pnl: {
+        pnl_usd: 2499.26,
+        pnl_pct: 83,
+        fees_claimed_usd: 2499.26,
+        unclaimed_fee_usd: 4.69,
       },
     });
     assert.ok(livePnlPct(card) < 10, livePnlPct(card));
