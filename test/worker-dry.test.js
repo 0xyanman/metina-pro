@@ -151,6 +151,39 @@ describe("worker cycle", () => {
     assert.equal(dryMsgs.length, 1);
   });
 
+  test("pending empty desk book does not mark live positions closed", async () => {
+    const sent = [];
+    let n = 0;
+    const client = {
+      async positions() {
+        n += 1;
+        if (n === 1) {
+          return {
+            positions: [{
+              poolType: "uniswap",
+              chain: "robinhood",
+              position: "1",
+              pair: "LIVE/USDG",
+            }],
+          };
+        }
+        return { ok: true, pending: true, positions: [] };
+      },
+    };
+    const tracker = createPositionTracker();
+    const notifier = {
+      isEnabled: () => true,
+      send: async (msg) => {
+        sent.push(msg);
+        return { ok: true };
+      },
+    };
+    await runCycle(client, { liveClose: false, discover: true }, new Set(), { notifier, tracker });
+    const pending = await runCycle(client, { liveClose: false, discover: true }, new Set(), { notifier, tracker });
+    assert.equal(pending.pending, true);
+    assert.equal(sent.some((m) => /Position Closed/.test(m)), false);
+  });
+
   test("lite watch tick asks Metina for hydrate=0", async () => {
     let seen = null;
     const client = {

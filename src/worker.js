@@ -37,12 +37,32 @@ function openFetchOpts(arg) {
   return { discover: arg === true, hydrate: true };
 }
 
-async function getOpenPositions(client, arg = false) {
-  const { discover, hydrate } = openFetchOpts(arg);
-  const data = await client.positions({ discover, hydrate });
+function liveOpenFromDesk(data) {
   const list = Array.isArray(data?.positions) ? data.positions : [];
   const live = list.filter((p) => !p.closed_on_chain && !p.readonly);
   return collapseOpenLadders(live);
+}
+
+function deskBookPendingEmpty(data, open) {
+  return Boolean(data?.pending) && !(open?.length);
+}
+
+async function getOpenBook(client, arg = false) {
+  const { discover, hydrate } = openFetchOpts(arg);
+  let data = await client.positions({ discover, hydrate });
+  let open = liveOpenFromDesk(data);
+  // Desk GET can return pending [] while the snapshot worker is still writing.
+  for (let i = 0; i < 2 && deskBookPendingEmpty(data, open); i += 1) {
+    await new Promise((r) => setTimeout(r, 800));
+    data = await client.positions({ discover, hydrate });
+    open = liveOpenFromDesk(data);
+  }
+  return { open, pending: deskBookPendingEmpty(data, open) };
+}
+
+async function getOpenPositions(client, arg = false) {
+  const book = await getOpenBook(client, arg);
+  return book.open;
 }
 
 function fullOpenFetch() {
@@ -56,7 +76,11 @@ async function handleHelpCommand(notifier) {
 async function handleRefreshCommand(client, notifier, commandGate) {
   commandGate?.mark("/refresh");
   await notifier?.send("⏳ Mengambil data posisi terbaru...");
-  const open = await getOpenPositions(client, fullOpenFetch());
+  const { open, pending } = await getOpenBook(client, fullOpenFetch());
+  if (pending) {
+    await notifier?.send("⏳ Desk masih update posisi. Coba /refresh lagi sebentar.");
+    return;
+  }
   if (open.length === 0) {
     await notifier?.send("📂 Tidak ada posisi open saat ini.");
     return;
@@ -330,7 +354,12 @@ async function handleOpenCommand(parsed, { client, notifier, inflight, liveOpen,
 
 export async function runCycle(client, { liveClose, discover, hydrate = true }, inflight, options = {}) {
   const { notifier, tracker } = options;
-  const open = await getOpenPositions(client, { discover: discover === true, hydrate });
+  const book = await getOpenBook(client, { discover: discover === true, hydrate });
+  if (book.pending) {
+    log("desk positions pending — skip watch tick");
+    return { count: 0, hits: 0, pending: true };
+  }
+  const open = book.open;
   let hits = 0;
   const dryHits = new Set();
 

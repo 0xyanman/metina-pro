@@ -333,12 +333,23 @@ function nearUsd(a, b) {
   return Math.abs(a - b) <= Math.max(0.05, Math.max(Math.abs(a), Math.abs(b)) * 0.08);
 }
 
-/** Overlay cost next to leftover 3:2 slices — keep overlay, do not sum. */
+/** Overlay cost next to leftover 3:2:1 slices — keep overlay, do not sum. */
 function overlayPlusSlicesUsd(entries) {
-  if (!Array.isArray(entries) || entries.length !== 3) return null;
-  const s = [...entries].filter((n) => n != null && n > 0).sort((a, b) => b - a);
+  const s = [...(entries || [])].filter((n) => n != null && n > 0).sort((a, b) => b - a);
+  if (s.length < 2) return null;
+  const [max, ...rest] = s;
+  if (!(max > 1)) return null;
+  if (s.length === 2) {
+    const lo = rest[0];
+    // Remaining 2:1 Bid-Ask rungs ($1000+$500) after the 3/6 primary closed.
+    if (nearUsd(max, lo * 2)) return max + lo;
+  }
+  const unit = max / 6;
+  const restAreSlices = rest.every((n) => nearUsd(n, unit) || nearUsd(n, unit * 2) || nearUsd(n, unit * 3));
+  const restSum = rest.reduce((a, b) => a + b, 0);
+  if (restAreSlices && restSum > 0 && restSum < max * 0.55) return max;
   if (s.length !== 3) return null;
-  const [max, hi, lo] = s;
+  const [, hi, lo] = s;
   if (!(lo > 0)) return null;
   let reconstructed = null;
   if (nearUsd(hi, lo * 1.5)) reconstructed = hi + lo + lo / 2;

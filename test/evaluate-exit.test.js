@@ -428,6 +428,140 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     assert.equal(hit.action, null);
   });
 
+  test("EVM Bid-Ask leftover CURRENT plus keeps LPAgent IL minus", () => {
+    const snow = {
+      poolType: "uniswap",
+      chain: "robinhood",
+      source: "lpagent",
+      discover_source: "lpagent",
+      quote_symbol: "USDG",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      total_value_usd: 98.17,
+      initial_value_usd: 84.40,
+      entry_value_usd: 84.40,
+      pnl: {
+        quote_symbol: "USDG",
+        strategy: "bid_ask",
+        pnl_usd: -0.5611,
+        indexer_pnl_usd: -0.5611,
+        current_value_usd: 98.17,
+        entry_value_usd: 84.40,
+        unclaimed_fee_usd: 0.66,
+      },
+    };
+    assert.ok(livePnlUsd(snow) < 0, livePnlUsd(snow));
+    assert.ok(Math.abs(livePnlUsd(snow) + 0.56) < 0.05, livePnlUsd(snow));
+    assert.equal(evaluateExit(snow).action, null);
+  });
+
+  test("EVM Bid-Ask live fee-sized plus is not indexer dust minus", () => {
+    const muse = {
+      poolType: "uniswap",
+      chain: "robinhood",
+      source: "lpagent",
+      discover_source: "lpagent",
+      quote_symbol: "USDG",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      total_value_usd: 4500,
+      initial_value_usd: 4500,
+      entry_value_usd: 4500,
+      pnl: {
+        quote_symbol: "USDG",
+        strategy: "bid_ask",
+        pnl_usd: -0.008,
+        indexer_pnl_usd: -0.008,
+        current_value_usd: 4500,
+        entry_value_usd: 4500,
+        unclaimed_fee_usd: 1.4,
+      },
+    };
+    assert.ok(Math.abs(livePnlUsd(muse) - 1.4) < 0.05, livePnlUsd(muse));
+    assert.ok(livePnlPct(muse) > 0 && livePnlPct(muse) < 1, livePnlPct(muse));
+    assert.equal(evaluateExit(muse).action, null);
+  });
+
+  test("Robinhood spot keeps LPAgent IL minus when gecko CURRENT is plus", () => {
+    const spawn = {
+      poolType: "uniswap",
+      chain: "robinhood",
+      source: "lpagent",
+      discover_source: "lpagent",
+      quote_symbol: "USDG",
+      strategy: "spot",
+      take_profit_pct: 4,
+      stop_loss_pct: -20,
+      total_value_usd: 118,
+      initial_value_usd: 100,
+      entry_value_usd: 100,
+      pnl: {
+        quote_symbol: "USDG",
+        pnl_usd: -18,
+        indexer_pnl_usd: -18,
+        current_value_usd: 118,
+        entry_value_usd: 100,
+        unclaimed_fee_usd: 0,
+      },
+    };
+    assert.ok(livePnlUsd(spawn) < 0, livePnlUsd(spawn));
+    assert.ok(Math.abs(livePnlUsd(spawn) + 18) < 0.05, livePnlUsd(spawn));
+    assert.equal(evaluateExit(spawn).action, null);
+    assert.equal(evaluateExit({ ...spawn, stop_loss_pct: -10 }).kind, "stop_loss");
+  });
+
+  test("partial withdraw scales cost so leftover deposit does not fake SL", () => {
+    const half = {
+      poolType: "uniswap",
+      chain: "robinhood",
+      source: "lpagent",
+      quote_symbol: "USDG",
+      strategy: "spot",
+      stop_loss_pct: -20,
+      take_profit_pct: 10,
+      cost_remaining_frac: 0.5,
+      original_initial_value_usd: 10000,
+      initial_value_usd: 10000,
+      entry_value_usd: 10000,
+      total_value_usd: 5000,
+      pnl: {
+        quote_symbol: "USDG",
+        entry_value_usd: 10000,
+        current_value_usd: 5000,
+        pnl_usd: 0,
+        cost_remaining_frac: 0.5,
+      },
+    };
+    assert.ok(Math.abs(livePnlUsd(half)) < 1, livePnlUsd(half));
+    assert.ok(Math.abs(livePnlPct(half)) < 1, livePnlPct(half));
+    assert.equal(evaluateExit(half).action, null);
+  });
+
+  test("incomplete Bid-Ask rung does not use the full 3-rung deposit as cost", () => {
+    const one = {
+      poolType: "uniswap",
+      chain: "robinhood",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      stop_loss_pct: -50,
+      take_profit_pct: 10,
+      current_value_usd: 1500,
+      entry_value_usd: 4500,
+      pnl: {
+        current_value_usd: 1500,
+        entry_value_usd: 4500,
+        amount_eth_usd: 1500,
+      },
+    };
+    assert.ok(Math.abs(livePnlUsd(one)) < 1, livePnlUsd(one));
+    assert.equal(evaluateExit(one).action, null);
+  });
+
   test("fresh Bid-Ask claimed 5/6 deposit does not trip TP 10%", () => {
     const hit = evaluateExit({
       poolType: "uniswap",
