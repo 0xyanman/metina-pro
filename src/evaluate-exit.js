@@ -248,13 +248,19 @@ export function bidAskOpenMarkUsd({ inventory, cost, pending = 0 } = {}) {
   return inventoryAlreadyHasFees ? gap : gap + pendingUsd;
 }
 
-function bidAskLiveMarkIsLeftover(mark, pending) {
+function bidAskLiveMarkIsLeftover(mark, pending, { inventory, cost } = {}) {
   const m = Number(mark);
   const fee = Number(pending);
   const pendingUsd = Number.isFinite(fee) && fee > 0 ? fee : 0;
   if (!Number.isFinite(m) || !(m > 0)) return false;
   if (pendingUsd >= 0.01 && Math.abs(m - pendingUsd) <= Math.max(1, pendingUsd * 0.35)) {
     return false;
+  }
+  const inv = Number(inventory);
+  const c = Number(cost);
+  if (Number.isFinite(inv) && Number.isFinite(c) && c > 0) {
+    const invGap = inv - c;
+    if (!(invGap > Math.max(5, c * 0.12))) return false;
   }
   return true;
 }
@@ -318,7 +324,7 @@ export function livePnlUsd(position) {
         && idx != null
         && idx < 0
         && mark > 0
-        && bidAskLiveMarkIsLeftover(mark, pending)
+        && bidAskLiveMarkIsLeftover(mark, pending, { inventory, cost })
       ) return idx;
       return mark;
     }
