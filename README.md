@@ -32,8 +32,8 @@ The key lives only in your `.env` on that machine. This replaces the desk tab th
 ### A. Laptop (test first)
 
 ```bash
-git clone https://github.com/0xyanman/metina-tpsl.git
-cd metina-tpsl
+git clone https://github.com/0xyanman/metina-pro.git
+cd metina-pro
 cp .env.example .env
 ```
 
@@ -72,7 +72,7 @@ When that looks right, stop with `Ctrl+C`, set `LIVE_CLOSE=1`, then `npm start` 
 ### B. Railway (easiest 24h)
 
 1. Open [railway.app](https://railway.app) and sign in with GitHub.
-2. **New project** → **Deploy from GitHub repo** → `0xyanman/metina-tpsl`  
+2. **New project** → **Deploy from GitHub repo** → `0xyanman/metina-pro`  
    (fork the repo to your GitHub first if you cannot deploy someone else's repo).
 3. Open the service → **Variables** and add the same keys as `.env`:
    - `METINA_URL` = `https://pro.metina.id`
@@ -93,8 +93,8 @@ Railway keeps the process up. If the deploy sleeps on a free trial, upgrade or u
 ```bash
 sudo apt update
 sudo apt install -y git nodejs npm
-git clone https://github.com/0xyanman/metina-tpsl.git
-cd metina-tpsl
+git clone https://github.com/0xyanman/metina-pro.git
+cd metina-pro
 cp .env.example .env
 nano .env          # fill the same values, start with LIVE_CLOSE=0
 npm install
@@ -235,8 +235,8 @@ Metina Pro **tidak menyimpan private key**. Key cuma ada di file `.env` di mesin
 ### A. Laptop (tes dulu)
 
 ```bash
-git clone https://github.com/0xyanman/metina-tpsl.git
-cd metina-tpsl
+git clone https://github.com/0xyanman/metina-pro.git
+cd metina-pro
 cp .env.example .env
 ```
 
@@ -275,7 +275,7 @@ Kalau log-nya benar, `Ctrl+C`, ganti `LIVE_CLOSE=1`, lalu `npm start` lagi. Tutu
 ### B. Railway (paling gampang untuk 24 jam)
 
 1. Buka [railway.app](https://railway.app), login dengan GitHub.
-2. **New project** → **Deploy from GitHub repo** → `0xyanman/metina-tpsl`  
+2. **New project** → **Deploy from GitHub repo** → `0xyanman/metina-pro`  
    (fork dulu ke GitHub kamu kalau tidak bisa deploy repo orang lain).
 3. Buka service → **Variables**, isi sama seperti `.env`:
    - `METINA_URL` = `https://pro.metina.id`
@@ -296,8 +296,8 @@ Railway menjaga proses tetap hidup. Kalau trial tidur sendiri, upgrade atau pind
 ```bash
 sudo apt update
 sudo apt install -y git nodejs npm
-git clone https://github.com/0xyanman/metina-tpsl.git
-cd metina-tpsl
+git clone https://github.com/0xyanman/metina-pro.git
+cd metina-pro
 cp .env.example .env
 nano .env          # isi sama, mulai dari LIVE_CLOSE=0
 npm install
