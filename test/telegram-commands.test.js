@@ -21,6 +21,26 @@ describe("handleTelegramCommand", () => {
     assert.match(sent[0], /Metina TPSL Bot Commands/);
   });
 
+  test("/refresh does not say no positions while desk snapshot is still pending", async () => {
+    const sent = [];
+    const notifier = {
+      send: async (msg) => {
+        sent.push(msg);
+        return { ok: true };
+      },
+    };
+    const client = {
+      positions: async () => ({ ok: true, pending: true, positions: [] }),
+    };
+    await handleTelegramCommand(
+      { cmd: "/refresh", args: [], raw: "/refresh" },
+      { client, notifier, tracker: null, inflight: new Set() }
+    );
+    assert.match(sent[0], /Mengambil data posisi/);
+    assert.match(sent[1], /masih update/);
+    assert.equal(sent.some((m) => /Tidak ada posisi open saat ini/.test(m)), false);
+  });
+
   test("/refresh fetches positions with discover=true and sends summary", async () => {
     const sent = [];
     const notifier = {

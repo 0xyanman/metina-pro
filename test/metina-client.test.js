@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient } from "../src/metina-client.js";
+import { createClient, mergePositionLegs } from "../src/metina-client.js";
 
 const creds = {
   metinaUrl: "https://pro.metina.id",
@@ -78,7 +78,7 @@ describe("Metina client", () => {
       const out = await client.positions({ discover: true });
       assert.equal(out.positions[0].position, "9");
       assert.equal(calls.length, 3);
-      assert.match(calls[0].url, /\/api\/web\/positions\?discover=1&hydrate=1$/);
+      assert.match(calls[0].url, /\/api\/web\/positions\?discover=1&include_solana=0&hydrate=1$/);
       assert.match(calls[1].url, /\/api\/auth\/login$/);
       assert.match(calls[2].url, /\/api\/web\/positions/);
       assert.equal(calls[2].init.headers.Cookie, "metina_member_session=fresh.member1");
@@ -99,7 +99,7 @@ describe("Metina client", () => {
     }, async (calls) => {
       await client.login();
       await client.positions({ discover: false, hydrate: false });
-      assert.match(calls[1].url, /\/api\/web\/positions\?discover=0&hydrate=0$/);
+      assert.match(calls[1].url, /\/api\/web\/positions\?discover=0&include_solana=0&hydrate=0$/);
     });
   });
 
@@ -176,6 +176,38 @@ describe("Metina client", () => {
       assert.equal(sent.venue, "uniswap");
       assert.equal(JSON.stringify(calls[1].init.headers).includes(creds.evmKey), false);
     });
+  });
+
+  test("positions fetch the desk EVM snap, not the combined include_solana default", async () => {
+    const client = createClient({ ...creds, solanaAddress: "So11111111111111111111111111111111111111112" });
+    await withFetch((_url, _init, n) => {
+      if (n === 1) {
+        return jsonRes({
+          body: { ok: true, authed: true },
+          cookies: ["metina_member_session=abc.member1"],
+        });
+      }
+      if (String(_url).includes("chain=solana")) {
+        return jsonRes({ body: { ok: true, positions: [{ position: "sol-1" }] } });
+      }
+      return jsonRes({ body: { ok: true, positions: [{ position: "evm-1" }] } });
+    }, async (calls) => {
+      await client.login();
+      const out = await client.positions({ discover: true, hydrate: true });
+      assert.deepEqual(out.positions.map((p) => p.position), ["evm-1", "sol-1"]);
+      assert.match(calls[1].url, /include_solana=0/);
+      assert.match(calls[2].url, /chain=solana/);
+      assert.equal(calls[2].init.headers["x-metina-solana-address"], "So11111111111111111111111111111111111111112");
+    });
+  });
+
+  test("mergePositionLegs keeps pending only when both legs are empty pending", () => {
+    const pending = mergePositionLegs({ ok: true, pending: true, positions: [] }, null);
+    assert.equal(pending.pending, true);
+    assert.equal(pending.positions.length, 0);
+    const ready = mergePositionLegs({ ok: true, pending: true, positions: [] }, { ok: true, positions: [{ position: "1" }] });
+    assert.equal(ready.pending, false);
+    assert.equal(ready.positions[0].position, "1");
   });
 
   test("non-401 errors do not retry login", async () => {

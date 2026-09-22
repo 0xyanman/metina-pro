@@ -160,8 +160,31 @@ function lpInventoryUsd(position) {
   return sides;
 }
 
+function costRemainingFrac(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const n = Number(position?.cost_remaining_frac ?? pnl.cost_remaining_frac);
+  if (Number.isFinite(n) && n > 0 && n <= 1) return n;
+  return null;
+}
+
+/** LPAgent keeps the original deposit after a 50% remove — scale like Pro. */
+function scaledOpenCostUsd(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const frac = costRemainingFrac(position);
+  const orig = firstPositive(position?.original_initial_value_usd, pnl.original_initial_value_usd);
+  const stored = firstPositive(pnl.entry_value_usd, position?.entry_value_usd, position?.initial_value_usd);
+  if (frac != null && frac < 0.999) {
+    const basis = orig || stored;
+    if (basis != null) return basis * frac;
+  }
+  if (orig != null && stored != null && stored < orig * 0.995) return stored;
+  return null;
+}
+
 function entryCostUsd(position, inventory) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const scaled = scaledOpenCostUsd(position);
+  if (scaled != null && scaled >= 0.01) return scaled;
   const entry = firstPositive(
     pnl.entry_value_usd,
     position?.initial_value_usd,
@@ -170,6 +193,19 @@ function entryCostUsd(position, inventory) {
     quoteIsStable(position) ? pnl.entry_value_eth : null,
     quoteIsStable(position) ? position?.entry_value_eth : null,
   );
+  const rungs = bidAskRungCount(position);
+  const mark = firstPositive(pnl.current_value_usd, position?.total_value_usd, position?.current_value_usd, inventory);
+  const eth = quoteIsStable(position)
+    ? firstPositive(pnl.entry_value_eth, position?.entry_value_eth)
+    : null;
+  if (rungs > 1 && mark > 0 && entry > 0 && mark > entry * 1.55) {
+    if (eth > 0 && eth >= mark * 0.7) return eth;
+    return mark;
+  }
+  if (rungs > 1 && mark > 0 && entry > 0 && entry > mark * 2.4) {
+    if (eth > 0 && eth <= mark * 1.2) return eth;
+    return mark;
+  }
   if (entry != null) return entry;
   // Do not invert onchain_pnl_pct when Pro already flagged it unreliable
   // (AU/USDG: -7.74% on-chain vs -1.43% from pnl_usd / inventory).
@@ -188,27 +224,112 @@ function mixedUnitPct(pct, liveUsd) {
   return liveUsd == null || Math.abs(liveUsd) < 0.01;
 }
 
+function shouldPreferLpagentOpenPnl(p) {
+  if (!p) return false;
+  const chain = String(p.chain || p.pnl?.chain || "").toLowerCase();
+  const src = String(p.discover_source || p.source || "").toLowerCase();
+  if (chain === "robinhood" && (src === "lpagent" || src === "krystal")) return true;
+  if (src !== "lpagent") return false;
+  if (chain === "solana" || chain === "sol") return true;
+  const pool = String(p.poolType || p.protocol || "").toLowerCase();
+  return pool === "dlmm";
+}
+
+/** Live EVM Bid-Ask: inventory + unclaimed − cost, without adding fees twice. */
+export function bidAskOpenMarkUsd({ inventory, cost, pending = 0 } = {}) {
+  const inv = Number(inventory);
+  const c = Number(cost);
+  const fee = Number(pending);
+  const pendingUsd = Number.isFinite(fee) && fee > 0 ? fee : 0;
+  if (!Number.isFinite(inv) || !Number.isFinite(c) || !(c > 0)) return null;
+  const gap = inv - c;
+  const inventoryAlreadyHasFees = pendingUsd >= 0.01
+    && Math.abs(gap - pendingUsd) <= Math.max(0.5, pendingUsd * 0.25);
+  return inventoryAlreadyHasFees ? gap : gap + pendingUsd;
+}
+
+function bidAskLiveMarkIsLeftover(mark, pending) {
+  const m = Number(mark);
+  const fee = Number(pending);
+  const pendingUsd = Number.isFinite(fee) && fee > 0 ? fee : 0;
+  if (!Number.isFinite(m) || !(m > 0)) return false;
+  if (pendingUsd >= 0.01 && Math.abs(m - pendingUsd) <= Math.max(1, pendingUsd * 0.35)) {
+    return false;
+  }
+  return true;
+}
+
 /**
- * Live USD = LP inventory (meme + USDG/ETH/…) + claimed/unclaimed fees − cost.
- * Do not trust API pnl_pct when it is just the on-chain inventory mark.
+ * LPAgent often prints fee ROI as Live PnL while inventory is underwater
+ * (VISTA +$80 fees vs −$640 mark). Same gate as Metina Pro.
+ */
+function feePrintHidesOpenMark(printedUsd, feeUsd, markUsd, costUsd) {
+  const printed = Number(printedUsd);
+  const mark = Number(markUsd);
+  const fees = Number(feeUsd) > 0 ? Number(feeUsd) : 0;
+  if (!Number.isFinite(printed) || !Number.isFinite(mark)) return false;
+  const gap = Math.abs(mark - printed);
+  if (gap <= 5) return false;
+  const looksLikeFeePrint = fees >= 0.01
+    && Math.abs(printed - fees) <= Math.max(1, fees * 0.2);
+  const opposite = Math.sign(printed) !== 0 && Math.sign(mark) !== 0
+    && Math.sign(printed) !== Math.sign(mark);
+  if (opposite && !looksLikeFeePrint) return false;
+  if (opposite) return true;
+  if (!looksLikeFeePrint) return false;
+  return gap > Math.max(fees, Math.abs(printed), (Number(costUsd) || 0) * 0.03);
+}
+
+function isSolanaDlmm(p) {
+  const chain = String(p?.chain || p?.pnl?.chain || "").toLowerCase();
+  if (chain === "solana" || chain === "sol") return true;
+  const pool = String(p?.poolType || p?.protocol || p?.venue || "").toLowerCase();
+  return pool === "dlmm" || pool === "damm";
+}
+
+/**
+ * Live USD = same Open-card mark as Metina Pro (inventory + fees − cost).
+ * Robinhood LPAgent leftover/incomplete CURRENT can print a plus while the
+ * indexer is IL-red — keep that minus so TP does not fire on a remint leftover.
  */
 export function livePnlUsd(position) {
-  const { pnl, fees } = feeBuckets(position);
-  const printed = num(pnl.pnl_usd ?? position?.pnl_usd);
+  const { pnl, fees, unclaimed } = feeBuckets(position);
+  const printed = num(pnl.pnl_usd ?? position?.pnl_usd ?? pnl.indexer_pnl_usd);
   const inventory = lpInventoryUsd(position);
   const cost = entryCostUsd(position, inventory);
+  const preferIndexer = shouldPreferLpagentOpenPnl(position);
+  const bidAsk = isBidAskPosition(position) && !isSolanaDlmm(position);
 
   if (inventory != null && cost != null && cost > 0) {
-    const mark = inventory + fees - cost;
     const withoutFees = inventory - cost;
-    // current_value often already includes unclaimed. Adding fees again
-    // doubles Live % when token sides are missing (all-quote cards).
     if (
       fees >= 0.01
       && Math.abs(withoutFees - fees) <= Math.max(0.5, fees * 0.25)
     ) {
       return withoutFees;
     }
+    if (bidAsk) {
+      // Leftover 3:2:1 "claimed" is already wiped in feeBuckets.
+      const pending = fees;
+      const mark = bidAskOpenMarkUsd({ inventory, cost, pending });
+      const idx = printed;
+      if (
+        preferIndexer
+        && idx != null
+        && idx < 0
+        && mark > 0
+        && bidAskLiveMarkIsLeftover(mark, pending)
+      ) return idx;
+      return mark;
+    }
+    const mark = inventory + fees - cost;
+    const printedLooksLikeFees = fees >= 0.01 && printed != null
+      && Math.abs(printed - fees) <= Math.max(1, fees * 0.2);
+    if ((preferIndexer || printedLooksLikeFees) && feePrintHidesOpenMark(printed, fees, mark, cost)) {
+      if (preferIndexer && printed < 0 && mark > 0 && !printedLooksLikeFees) return printed;
+      return mark;
+    }
+    if (preferIndexer && printed != null) return printed;
     return mark;
   }
   if ((printed == null || Math.abs(printed) < 0.005) && fees >= 0.01) {

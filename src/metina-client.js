@@ -23,13 +23,32 @@ function mergeCookie(prev, next) {
   return [...map.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
 }
 
-export function createClient({ metinaUrl, email, password, evmKey, address, rpcs }) {
+export function mergePositionLegs(evm, sol) {
+  const evmList = Array.isArray(evm?.positions) ? evm.positions : [];
+  const solList = Array.isArray(sol?.positions) ? sol.positions : [];
+  const evmPending = Boolean(evm?.pending) && evmList.length === 0;
+  const solPending = sol ? Boolean(sol.pending) && solList.length === 0 : false;
+  const errors = [
+    ...(Array.isArray(evm?.errors) ? evm.errors : []),
+    ...(Array.isArray(sol?.errors) ? sol.errors : []),
+  ];
+  return {
+    ok: evm?.ok !== false && (!sol || sol.ok !== false),
+    pending: evmPending && (!sol || solPending),
+    positions: [...evmList, ...solList],
+    errors,
+    wallet: evm?.wallet || sol?.wallet || undefined,
+  };
+}
+
+export function createClient({ metinaUrl, email, password, evmKey, address, solanaAddress, rpcs }) {
   let cookie = "";
 
   function headers({ sign = false } = {}) {
     const h = { Accept: "application/json" };
     if (cookie) h.Cookie = cookie;
     if (address) h["x-metina-evm-address"] = address;
+    if (solanaAddress) h["x-metina-solana-address"] = solanaAddress;
     if (rpcs && Object.keys(rpcs).length) h["x-metina-rpcs"] = JSON.stringify(rpcs);
     if (sign) h["Content-Type"] = "application/json";
     return h;
@@ -71,13 +90,24 @@ export function createClient({ metinaUrl, email, password, evmKey, address, rpcs
 
   async function positions({ discover = false, hydrate = true } = {}) {
     return withAuth(async () => {
-      const qs = new URLSearchParams();
-      qs.set("discover", discover ? "1" : "0");
-      qs.set("hydrate", hydrate ? "1" : "0");
-      const res = await fetch(`${metinaUrl}/api/web/positions?${qs}`, {
+      // Same legs as the desk Open tab. include_solana=0 is the EVM snap the
+      // website writes; omitting it defaults to s1 and Telegram sees [].
+      const evmQs = new URLSearchParams();
+      evmQs.set("discover", discover ? "1" : "0");
+      evmQs.set("include_solana", "0");
+      evmQs.set("hydrate", hydrate ? "1" : "0");
+      const evmRes = await fetch(`${metinaUrl}/api/web/positions?${evmQs}`, {
         headers: headers(),
       });
-      return readJson(res);
+      const evm = await readJson(evmRes);
+      if (!solanaAddress) return mergePositionLegs(evm, null);
+      const solQs = new URLSearchParams();
+      solQs.set("chain", "solana");
+      solQs.set("hydrate", hydrate ? "1" : "0");
+      const solRes = await fetch(`${metinaUrl}/api/web/positions?${solQs}`, {
+        headers: headers(),
+      });
+      return mergePositionLegs(evm, await readJson(solRes));
     });
   }
 
