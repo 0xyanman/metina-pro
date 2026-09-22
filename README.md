@@ -99,8 +99,8 @@ cp .env.example .env
 nano .env          # fill the same values, start with LIVE_CLOSE=0
 npm install
 sudo npm install -g pm2
-pm2 start src/index.js --name metina-tpsl
-pm2 logs metina-tpsl
+pm2 start src/index.js --name metina-pro
+pm2 logs metina-pro
 pm2 startup
 pm2 save
 ```
@@ -109,12 +109,12 @@ After DRY logs look correct:
 
 ```bash
 # in .env set LIVE_CLOSE=1
-pm2 restart metina-tpsl
+pm2 restart metina-pro
 ```
 
 ```bash
 pm2 status          # should stay "online"
-pm2 logs metina-tpsl --lines 50
+pm2 logs metina-pro --lines 50
 ```
 
 ### Telegram (optional)
@@ -302,8 +302,8 @@ cp .env.example .env
 nano .env          # isi sama, mulai dari LIVE_CLOSE=0
 npm install
 sudo npm install -g pm2
-pm2 start src/index.js --name metina-tpsl
-pm2 logs metina-tpsl
+pm2 start src/index.js --name metina-pro
+pm2 logs metina-pro
 pm2 startup
 pm2 save
 ```
@@ -312,12 +312,12 @@ Setelah log DRY benar:
 
 ```bash
 # di .env ganti LIVE_CLOSE=1
-pm2 restart metina-tpsl
+pm2 restart metina-pro
 ```
 
 ```bash
 pm2 status          # harus "online"
-pm2 logs metina-tpsl --lines 50
+pm2 logs metina-pro --lines 50
 ```
 
 ### Telegram (opsional)
