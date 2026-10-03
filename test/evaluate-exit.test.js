@@ -619,4 +619,29 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     });
     assert.equal(hit.action, null);
   });
+
+  test("Krystal BSC Bid-Ask adds claimed fees that already left current", () => {
+    const card = {
+      poolType: "uniswap",
+      chain: "bsc",
+      source: "krystal",
+      discover_source: "krystal",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["7612838", "7612839", "7612840"],
+      total_value_usd: 3139.56,
+      entry_value_usd: 3200,
+      pnl: {
+        quote_symbol: "USDT",
+        strategy: "bid_ask",
+        pnl_usd: -60.44,
+        current_value_usd: 3139.56,
+        entry_value_usd: 3200,
+        unclaimed_fee_usd: 6.25,
+        fees_claimed_usd: 17.44,
+      },
+    };
+    const usd = livePnlUsd(card);
+    assert.ok(Math.abs(usd - (-43)) < 0.15, usd);
+  });
 });

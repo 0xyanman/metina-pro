@@ -315,6 +315,30 @@ export function livePnlUsd(position) {
       return withoutFees;
     }
     if (bidAsk) {
+      const chainLc = String(position?.chain || pnl.chain || "").toLowerCase();
+      const srcLc = String(position?.source || position?.discover_source || "").toLowerCase();
+      // Krystal current already includes unclaimed. Live PnL is that current
+      // minus deposit, plus fees that already left the NFT.
+      if (
+        srcLc === "krystal"
+        && (chainLc === "bsc" || chainLc === "base" || chainLc === "ethereum" || chainLc === "arc")
+      ) {
+        const cur = firstPositive(
+          pnl.current_value_usd,
+          position?.total_value_usd,
+          position?.current_value_usd,
+          inventory,
+        );
+        const sides = firstPositive(lpSidesUsd(position));
+        const { claimed, unclaimed: pendingFee } = feeBuckets(position);
+        let value = cur;
+        if (cur != null && pendingFee >= 0.01 && sides > 1) {
+          const tol = Math.max(1, pendingFee * 0.35);
+          const feesInside = Math.abs(cur - (sides + pendingFee)) <= tol;
+          if (!feesInside && Math.abs(cur - sides) <= tol) value = cur + pendingFee;
+        }
+        if (value != null && cost > 0) return value - cost + claimed;
+      }
       // Leftover 3:2:1 "claimed" is already wiped in feeBuckets.
       const pending = fees;
       const mark = bidAskOpenMarkUsd({ inventory, cost, pending });
