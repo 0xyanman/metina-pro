@@ -457,7 +457,24 @@ function mergeLadderGroup(members, gid) {
     : sumPicked(sorted, memberPnlUsd);
   if (pnlUsd == null && mark != null && basis != null) pnlUsd = mark - basis;
   const fromMark = mark != null && basis != null && basis > 0 ? mark - basis : null;
-  if (fromMark != null && (
+  const krystalEvm = ["bsc", "base", "ethereum", "arc"].includes(String(primary.chain || "").toLowerCase())
+    && sorted.every((m) => String(m.source || m.discover_source || "").toLowerCase() === "krystal");
+  const claimedSum = sumPicked(sorted, (m) => firstPositive(
+    m.fees_claimed_usd,
+    m.pnl?.fees_claimed_usd,
+    m.collected_fees_usd,
+  )) || 0;
+  const krystalFeeMark = fromMark != null ? fromMark + claimedSum : null;
+  const keepKrystalPnl = krystalEvm
+    && pnlUsd != null
+    && Math.abs(pnlUsd) >= 0.01
+    && fromMark != null
+    && (
+      Math.abs(fromMark) < 0.05
+      || (krystalFeeMark != null
+        && Math.abs(pnlUsd - krystalFeeMark) <= Math.max(1, Math.abs(claimedSum) * 0.25))
+    );
+  if (!keepKrystalPnl && fromMark != null && (
     wild
     || pnlUsd == null
     || Math.abs(pnlUsd - fromMark) > Math.max(5, Math.abs(fromMark) * 0.5)

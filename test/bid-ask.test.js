@@ -961,4 +961,28 @@ describe("Bid-Ask real vs fake TP/SL", () => {
     assert.ok(livePnlPct(card) >= 10, livePnlPct(card));
     assert.equal(evaluateExit(card).kind, "take_profit");
   });
+
+  test("Krystal BSC Bid-Ask collapse keeps current − deposit + claimed", () => {
+    const ids = ["7612838", "7612839", "7612840"];
+    const base = {
+      poolType: "uniswap",
+      chain: "bsc",
+      source: "krystal",
+      discover_source: "krystal",
+      pool: "0x692e",
+      pair: "제로/USDT",
+      quote_symbol: "USDT",
+      wallet: "0x2fd2",
+      strategy: "bid_ask",
+      ladder_id: "bidask:bsc:7612838",
+      ladder_token_ids: ids,
+    };
+    const [card] = collapseOpenLadders([
+      { ...base, tokenId: "7612838", total_value_usd: 1600, entry_value_usd: 1600, pnl_usd: 0, pnl: { pnl_usd: 0, current_value_usd: 1600, entry_value_usd: 1600 } },
+      { ...base, tokenId: "7612839", total_value_usd: 1066.69, entry_value_usd: 1066.67, pnl_usd: 0.03, pnl: { pnl_usd: 0.03, current_value_usd: 1066.69, entry_value_usd: 1066.67, fees_claimed_usd: 0.01 } },
+      { ...base, tokenId: "7612840", total_value_usd: 472.87, entry_value_usd: 533.33, pnl_usd: -43.03, pnl: { pnl_usd: -43.03, current_value_usd: 472.87, entry_value_usd: 533.33, fees_claimed_usd: 17.43, unclaimed_fee_usd: 3.61 } },
+    ]);
+    assert.ok(Math.abs(card.pnl_usd - (-43)) < 0.15, card.pnl_usd);
+    assert.ok(Math.abs(livePnlUsd(card) - (-43)) < 0.15, livePnlUsd(card));
+  });
 });
