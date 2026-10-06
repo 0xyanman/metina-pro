@@ -676,4 +676,37 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     assert.ok(Math.abs(livePnlPct(p) - 0.35) < 0.05, livePnlPct(p));
     assert.equal(evaluateExit(p).action, null);
   });
+
+  test("CLAUS/ETH fee tokens are not priced at CLAUS per ETH", () => {
+    const p = {
+      poolType: "uniswap",
+      chain: "ethereum",
+      source: "krystal",
+      pair: "CLAUS/ETH",
+      quote_symbol: "ETH",
+      current_price: 232206.48,
+      eth_price: 2715,
+      take_profit_pct: 50,
+      stop_loss_pct: -20,
+      total_value_usd: 0.46,
+      entry_value_usd: 0.41,
+      pnl: {
+        quote_symbol: "ETH",
+        current_price: 232206.48,
+        current_value_usd: 0.46,
+        entry_value_usd: 0.41,
+        pnl_usd: 0.05,
+        unclaimed_fee_usd: 0.05,
+        unclaimed_fees_quote: 0.00000852,
+        unclaimed_fees_meme: 2.278,
+        amount_eth: 0.000146,
+        amount_eth_usd: 0.397,
+        amount_meme: 0,
+        amount_meme_usd: 0,
+      },
+    };
+    const usd = livePnlUsd(p);
+    assert.ok(Math.abs(usd) < 1, usd);
+    assert.equal(evaluateExit(p).action, null);
+  });
 });
