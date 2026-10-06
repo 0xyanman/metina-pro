@@ -644,4 +644,36 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     const usd = livePnlUsd(card);
     assert.ok(Math.abs(usd - (-43)) < 0.15, usd);
   });
+
+  test("claimed fees already inside current do not inflate Live PnL or trip TP", () => {
+    const p = {
+      poolType: "uniswap",
+      chain: "robinhood",
+      source: "lpagent",
+      discover_source: "lpagent",
+      strategy: "bid_ask",
+      ladder_rungs: 3,
+      ladder_token_ids: ["1", "2", "3"],
+      pair: "UBIK/USDG",
+      quote_symbol: "USDG",
+      take_profit_pct: 1,
+      stop_loss_pct: -20,
+      initial_value_usd: 10000,
+      pnl: {
+        quote_symbol: "USDG",
+        strategy: "bid_ask",
+        entry_value_usd: 10000,
+        current_value_usd: 10158,
+        pnl_usd: 35,
+        pnl_pct: 0.35,
+        fees_claimed_usd: 123,
+        unclaimed_fee_usd: 0,
+        amount_eth_usd: 4000,
+        amount_meme_usd: 6035,
+      },
+    };
+    assert.ok(Math.abs(livePnlUsd(p) - 35) < 0.05, livePnlUsd(p));
+    assert.ok(Math.abs(livePnlPct(p) - 0.35) < 0.05, livePnlPct(p));
+    assert.equal(evaluateExit(p).action, null);
+  });
 });
