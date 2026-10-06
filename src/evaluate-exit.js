@@ -38,6 +38,19 @@ function quoteLooksLikeUnclaimedUsd(usd, quoteAmt) {
   return Math.abs(idx - q) <= Math.max(0.25, Math.abs(q) * 0.12);
 }
 
+function impliedNativeQuotePrice(position) {
+  const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
+  const amt = num(pnl.amount_eth ?? position?.amount_eth);
+  const usd = num(pnl.amount_eth_usd ?? position?.amount_eth_usd ?? position?.amount_quote_usd);
+  if (amt != null && amt > 0 && usd != null && usd > 0) {
+    const px = usd / amt;
+    if (px > 2 && px < 1_000_000) return px;
+  }
+  const direct = num(position?.eth_price ?? pnl.eth_price ?? position?.bnb_price ?? pnl.bnb_price);
+  if (direct != null && direct > 2 && direct < 1_000_000) return direct;
+  return null;
+}
+
 function impliedMemePrice(position) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
   const amt = num(pnl.amount_meme ?? position?.amount_meme);
@@ -64,7 +77,13 @@ function unclaimedUsdFromFeeLegs(position) {
   const m = num(pnl.unclaimed_fees_meme ?? position?.unclaimed_fees_meme);
   const quote = String(pnl.quote_symbol || position?.quote_symbol || "").toUpperCase();
   const stable = /^(USDG|USDT|USDC|USD|DAI)$/.test(quote);
-  const px = impliedMemePrice(position);
+  let px = impliedMemePrice(position);
+  const nativeQuoted = /^(ETH|WETH|BNB|WBNB)$/.test(quote);
+  if (nativeQuoted && px != null && px > 0) {
+    const np = impliedNativeQuotePrice(position);
+    // Pool NOW is often meme tokens per 1 ETH (CLAUS ~232k), not USD.
+    if (np > 2 && px > np * 20) px = np / px;
+  }
   let fromTokens = 0;
   if (stable && q != null && q > 0) fromTokens += q;
   if (m != null && m > 0 && px != null && px > 0) fromTokens += m * px;
