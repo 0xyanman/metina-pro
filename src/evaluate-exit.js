@@ -235,6 +235,51 @@ function shouldPreferLpagentOpenPnl(p) {
   return pool === "dlmm";
 }
 
+/**
+ * current − cost is larger than the token / LPAgent mark by about the claimed
+ * fees, so those fees are already inside the API value. Do not add them again.
+ * Same rule as Metina Pro tokenPnlIfClaimedInsideValue.
+ */
+export function tokenPnlIfClaimedInsideValue({
+  current,
+  sides,
+  cost,
+  printed,
+  unclaimed = 0,
+  claimed = 0,
+} = {}) {
+  const cur = Number(current);
+  const basis = Number(cost);
+  const c = Number(claimed);
+  const u = Number(unclaimed) > 0 ? Number(unclaimed) : 0;
+  if (!(cur > 1) || !(basis > 0) || !(c >= 1)) return null;
+  const rawGap = cur - basis;
+  const print = Number(printed);
+  const side = Number(sides);
+  const sidesMatchCurrent = Number.isFinite(side) && side > 1
+    && Math.abs(side - cur) <= Math.max(1, cur * 0.002);
+  const bases = [];
+  if (Number.isFinite(side) && side > 1 && !sidesMatchCurrent) bases.push(side - basis);
+  if (Number.isFinite(print) && Math.abs(print) >= 0.01) bases.push(print);
+  const fees = [c];
+  if (u >= 1) fees.push(c + u);
+  const combined = openFeesUsd(u, c);
+  if (combined > c + 0.01) fees.push(combined);
+  for (const base of bases) {
+    if (Math.abs(base - c) <= Math.max(1, c * 0.2)) continue;
+    const legGap = rawGap - base;
+    // A pending-fee gap must not be read as claimed (제로/USDT $12.75 vs $18.55).
+    if (u >= 1 && Math.abs(legGap - u) <= Math.abs(legGap - c)) continue;
+    for (const fee of fees) {
+      if (!(fee >= 1)) continue;
+      if (Math.abs(legGap - fee) > Math.max(1, fee * 0.15)) continue;
+      const tokenBase = Number.isFinite(side) && side > 1 && !sidesMatchCurrent ? side - basis : base;
+      return tokenBase + u;
+    }
+  }
+  return null;
+}
+
 /** Live EVM Bid-Ask: inventory + unclaimed − cost, without adding fees twice. */
 export function bidAskOpenMarkUsd({ inventory, cost, pending = 0 } = {}) {
   const inv = Number(inventory);
@@ -299,12 +344,25 @@ function isSolanaDlmm(p) {
  * indexer is IL-red — keep that minus so TP does not fire on a remint leftover.
  */
 export function livePnlUsd(position) {
-  const { pnl, fees, unclaimed } = feeBuckets(position);
+  const { pnl, fees, unclaimed, claimed } = feeBuckets(position);
   const printed = num(pnl.pnl_usd ?? position?.pnl_usd ?? pnl.indexer_pnl_usd);
   const inventory = lpInventoryUsd(position);
   const cost = entryCostUsd(position, inventory);
   const preferIndexer = shouldPreferLpagentOpenPnl(position);
   const bidAsk = isBidAskPosition(position) && !isSolanaDlmm(position);
+  const currentRaw = firstPositive(pnl.current_value_usd, position?.total_value_usd, position?.current_value_usd);
+
+  if (currentRaw != null && cost != null && cost > 0 && !isSolanaDlmm(position)) {
+    const tokenMark = tokenPnlIfClaimedInsideValue({
+      current: currentRaw,
+      sides: lpSidesUsd(position),
+      cost,
+      printed,
+      unclaimed,
+      claimed,
+    });
+    if (tokenMark != null) return tokenMark;
+  }
 
   if (inventory != null && cost != null && cost > 0) {
     const withoutFees = inventory - cost;
