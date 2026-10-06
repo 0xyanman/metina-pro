@@ -437,6 +437,20 @@ export function livePnlUsd(position) {
       return mark;
     }
     if (preferIndexer && printed != null) return printed;
+    const krPartial = num(pnl.indexer_pnl_usd);
+    const srcLc = String(position?.source || position?.discover_source || "").toLowerCase();
+    const chainLc = String(position?.chain || pnl.chain || "").toLowerCase();
+    const krystalEvm = srcLc === "krystal"
+      && (chainLc === "bsc" || chainLc === "base" || chainLc === "ethereum" || chainLc === "arc");
+    if (krystalEvm && krPartial != null && cost > 0) {
+      const gap = krPartial - mark;
+      const pad = Math.max(fees, 0.01);
+      // Partial withdraw: Krystal is vs capital still in the LP. The full
+      // deposit makes a profit look like a large loss (SIMD/USDC +$130).
+      if (Math.abs(krPartial) >= 0.5 && gap > Math.max(20, pad * 1.5) && Math.abs(krPartial) <= cost * 5) {
+        return krPartial;
+      }
+    }
     return mark;
   }
   if ((printed == null || Math.abs(printed) < 0.005) && fees >= 0.01) {

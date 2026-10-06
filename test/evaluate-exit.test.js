@@ -677,6 +677,37 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     assert.equal(evaluateExit(p).action, null);
   });
 
+  test("Ethereum partial withdraw still in profit does not trip SL", () => {
+    const p = {
+      poolType: "uniswap",
+      chain: "ethereum",
+      source: "krystal",
+      discover_source: "krystal",
+      pair: "SIMD/USDC",
+      quote_symbol: "USDC",
+      strategy: "spot",
+      take_profit_pct: 10,
+      stop_loss_pct: -20,
+      total_value_usd: 2609.07,
+      initial_value_usd: 5000,
+      pnl: {
+        quote_symbol: "USDC",
+        pnl_usd: 0,
+        pnl_pct: -47.09,
+        indexer_pnl_usd: 130.4,
+        current_value_usd: 2609.07,
+        entry_value_usd: 5000,
+        unclaimed_fee_usd: 244.63,
+        fees_claimed_usd: 36.58,
+        amount_eth_usd: 1698.39,
+        amount_meme_usd: 665.6,
+      },
+    };
+    const usd = livePnlUsd(p);
+    assert.ok(Math.abs(usd - 130.4) < 1, usd);
+    assert.equal(evaluateExit(p).action, null);
+  });
+
   test("CLAUS/ETH fee tokens are not priced at CLAUS per ETH", () => {
     const p = {
       poolType: "uniswap",
