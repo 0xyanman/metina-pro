@@ -543,6 +543,35 @@ describe("TP/SL rules (same as Metina Pro desk)", () => {
     assert.equal(evaluateExit({ ...spawn, stop_loss_pct: -10 }).kind, "stop_loss");
   });
 
+  test("Robinhood LPAgent percent is not doubled by claimed fees into a fake TP", () => {
+    const zzz = {
+      poolType: "uniswap",
+      chain: "robinhood",
+      source: "lpagent",
+      discover_source: "lpagent",
+      quote_symbol: "USDG",
+      strategy: "spot",
+      take_profit_pct: 3,
+      stop_loss_pct: -20,
+      total_value_usd: 1000,
+      initial_value_usd: 1000,
+      entry_value_usd: 1000,
+      pnl: {
+        quote_symbol: "USDG",
+        pnl_usd: 40,
+        pnl_pct: 2,
+        onchain_pnl_pct: 2,
+        current_value_usd: 1000,
+        entry_value_usd: 1000,
+        fees_claimed_usd: 20,
+        unclaimed_fee_usd: 0,
+      },
+    };
+    assert.ok(Math.abs(livePnlUsd(zzz) - 20) < 0.05, livePnlUsd(zzz));
+    assert.ok(Math.abs(livePnlPct(zzz) - 2) < 0.05, livePnlPct(zzz));
+    assert.equal(evaluateExit(zzz).action, null);
+  });
+
   test("partial withdraw scales cost so leftover deposit does not fake SL", () => {
     const half = {
       poolType: "uniswap",

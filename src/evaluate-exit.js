@@ -106,6 +106,21 @@ function unclaimedUsdFromFeeLegs(position) {
   return fromTokens > 0.005 ? fromTokens : 0;
 }
 
+/** Source percent is the PnL. A dollar that is that percent plus claimed counted the harvest twice. */
+function sourcePnlWithoutDoubleClaimed(printedUsd, pct, costUsd, claimedUsd) {
+  const printed = num(printedUsd);
+  const percent = num(pct);
+  const cost = num(costUsd);
+  const claimed = num(claimedUsd);
+  if (printed == null || percent == null || !(cost > 0) || !(claimed >= 0.5)) return null;
+  const fromPct = cost * (percent / 100);
+  if (Math.sign(printed) !== 0 && Math.sign(fromPct) !== 0 && Math.sign(printed) !== Math.sign(fromPct)) return null;
+  const tol = Math.max(0.25, Math.min(claimed * 0.12, cost * 0.002));
+  if (Math.abs(printed - fromPct) <= tol) return null;
+  if (Math.abs(printed - (fromPct + claimed)) <= tol) return fromPct;
+  return null;
+}
+
 function feeBuckets(position) {
   const pnl = position?.pnl && typeof position.pnl === "object" ? position.pnl : {};
   const legs = unclaimedUsdFromFeeLegs(position);
@@ -427,6 +442,9 @@ export function livePnlUsd(position) {
         && mark > 0
         && bidAskLiveMarkIsLeftover(mark, pending, { inventory, cost })
       ) return idx;
+      const srcPct = num(pnl.pnl_pct ?? position?.pnl_pct ?? pnl.onchain_pnl_pct);
+      const snapped = sourcePnlWithoutDoubleClaimed(mark, srcPct, cost, claimed);
+      if (preferIndexer && snapped != null) return snapped;
       return mark;
     }
     const mark = inventory + fees - cost;
@@ -436,7 +454,11 @@ export function livePnlUsd(position) {
       if (preferIndexer && printed < 0 && mark > 0 && !printedLooksLikeFees) return printed;
       return mark;
     }
-    if (preferIndexer && printed != null) return printed;
+    if (preferIndexer && printed != null) {
+      const srcPct = num(pnl.pnl_pct ?? position?.pnl_pct ?? pnl.onchain_pnl_pct);
+      const snapped = sourcePnlWithoutDoubleClaimed(printed, srcPct, cost, claimed);
+      return snapped != null ? snapped : printed;
+    }
     const krPartial = num(pnl.indexer_pnl_usd);
     const srcLc = String(position?.source || position?.discover_source || "").toLowerCase();
     const chainLc = String(position?.chain || pnl.chain || "").toLowerCase();
