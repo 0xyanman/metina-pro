@@ -1,3 +1,5 @@
+import { sealVaultForServer } from "./vault-seal.js";
+
 function parseSetCookie(res) {
   const raw = typeof res.headers.getSetCookie === "function"
     ? res.headers.getSetCookie()
@@ -43,6 +45,7 @@ export function mergePositionLegs(evm, sol) {
 
 export function createClient({ metinaUrl, email, password, evmKey, address, solanaAddress, rpcs }) {
   let cookie = "";
+  let sealPub = "";
 
   function headers({ sign = false } = {}) {
     const h = { Accept: "application/json" };
@@ -111,15 +114,30 @@ export function createClient({ metinaUrl, email, password, evmKey, address, sola
     });
   }
 
+  async function sealPubKey() {
+    if (sealPub) return sealPub;
+    const res = await fetch(`${metinaUrl}/api/web/vault-pub`, { headers: headers() });
+    const json = await readJson(res);
+    const pub = String(json.pub || "").trim();
+    if (!pub) throw new Error("Could not protect the wallet key");
+    sealPub = pub;
+    return sealPub;
+  }
+
+  async function sealedBody(body) {
+    const pub = await sealPubKey();
+    return {
+      ...body,
+      _vault: await sealVaultForServer({ evmKey }, pub),
+    };
+  }
+
   async function close(body) {
     return withAuth(async () => {
       const res = await fetch(`${metinaUrl}/api/web/close`, {
         method: "POST",
         headers: headers({ sign: true }),
-        body: JSON.stringify({
-          ...body,
-          _vault: { evmKey },
-        }),
+        body: JSON.stringify(await sealedBody(body)),
       });
       return readJson(res);
     });
@@ -141,10 +159,7 @@ export function createClient({ metinaUrl, email, password, evmKey, address, sola
       const res = await fetch(`${metinaUrl}/api/web/deploy`, {
         method: "POST",
         headers: headers({ sign: true }),
-        body: JSON.stringify({
-          ...body,
-          _vault: { evmKey },
-        }),
+        body: JSON.stringify(await sealedBody(body)),
       });
       return readJson(res);
     });

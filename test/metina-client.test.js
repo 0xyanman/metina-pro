@@ -1,6 +1,17 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { webcrypto } from "node:crypto";
 import { createClient, mergePositionLegs } from "../src/metina-client.js";
+
+async function vaultPub() {
+  const key = await webcrypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"],
+  );
+  const raw = new Uint8Array(await webcrypto.subtle.exportKey("raw", key.publicKey));
+  return Buffer.from(raw).toString("base64url");
+}
 
 const creds = {
   metinaUrl: "https://pro.metina.id",
@@ -103,14 +114,18 @@ describe("Metina client", () => {
     });
   });
 
-  test("close sends _vault key only in the body", async () => {
+  test("close seals the vault instead of sending the raw key", async () => {
     const client = createClient(creds);
-    await withFetch((_url, _init, n) => {
+    const pub = await vaultPub();
+    await withFetch((url, _init, n) => {
       if (n === 1) {
         return jsonRes({
           body: { ok: true },
           cookies: ["metina_member_session=abc.member1"],
         });
+      }
+      if (String(url).includes("/vault-pub")) {
+        return jsonRes({ body: { ok: true, pub } });
       }
       return jsonRes({ body: { ok: true, success: true, tx: "0xclose" } });
     }, async (calls) => {
@@ -122,11 +137,12 @@ describe("Metina client", () => {
         kind: "stop_loss",
       });
       assert.equal(out.tx, "0xclose");
-      const sent = JSON.parse(calls[1].init.body);
-      assert.equal(sent._vault.evmKey, creds.evmKey);
+      const sent = JSON.parse(calls[2].init.body);
+      assert.equal(sent._vault.v, 1);
+      assert.equal(sent._vault.evmKey, undefined);
       assert.equal(sent.kind, "stop_loss");
-      assert.equal(JSON.stringify(calls[0].init.body || {}).includes(creds.evmKey), false);
-      assert.equal(JSON.stringify(calls[1].init.headers).includes(creds.evmKey), false);
+      assert.equal(JSON.stringify(sent).includes(creds.evmKey), false);
+      assert.equal(JSON.stringify(calls[2].init.headers).includes(creds.evmKey), false);
     });
   });
 
@@ -151,14 +167,18 @@ describe("Metina client", () => {
     });
   });
 
-  test("deploy sends _vault key only in the body", async () => {
+  test("deploy seals the vault instead of sending the raw key", async () => {
     const client = createClient(creds);
-    await withFetch((_url, _init, n) => {
+    const pub = await vaultPub();
+    await withFetch((url, _init, n) => {
       if (n === 1) {
         return jsonRes({
           body: { ok: true },
           cookies: ["metina_member_session=abc.member1"],
         });
+      }
+      if (String(url).includes("/vault-pub")) {
+        return jsonRes({ body: { ok: true, pub } });
       }
       return jsonRes({ body: { ok: true, success: true, tx: "0xopen", position: "42" } });
     }, async (calls) => {
@@ -170,11 +190,12 @@ describe("Metina client", () => {
         chain: "robinhood",
       });
       assert.equal(out.tx, "0xopen");
-      assert.match(calls[1].url, /\/api\/web\/deploy$/);
-      const sent = JSON.parse(calls[1].init.body);
-      assert.equal(sent._vault.evmKey, creds.evmKey);
+      assert.match(calls[2].url, /\/api\/web\/deploy$/);
+      const sent = JSON.parse(calls[2].init.body);
+      assert.equal(sent._vault.v, 1);
+      assert.equal(sent._vault.evmKey, undefined);
       assert.equal(sent.venue, "uniswap");
-      assert.equal(JSON.stringify(calls[1].init.headers).includes(creds.evmKey), false);
+      assert.equal(JSON.stringify(sent).includes(creds.evmKey), false);
     });
   });
 
